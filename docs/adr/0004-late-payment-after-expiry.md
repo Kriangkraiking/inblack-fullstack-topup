@@ -1,6 +1,6 @@
 # ADR 0004: Payment that arrives after an order expired
 
-Status: Draft. The API and worker that follow it are not built yet.
+Status: Draft. Built in the webhook and worker, see ADR 0002.
 
 ## Context
 
@@ -39,6 +39,15 @@ A partial refund never changes the status. The order keeps its status and `refun
 - `payment.failed` after `payment.succeeded`: there is no edge from a paid status to PAYMENT_FAILED, so the event is recorded and ignored.
 - `payment.succeeded` on PAYMENT_FAILED: goes to NEEDS_REVIEW. The spec does not cover it, and a person should look at money received on an order we already told the customer had failed.
 - Admin retry of a FAILED order: FAILED → NEEDS_REVIEW → PAID → IN_QUEUE, which reuses the edges above instead of adding FAILED → IN_QUEUE.
+
+## Decisions made while building it
+
+- **Late payment that cannot be fulfilled:** the order stays EXPIRED while the refund is PENDING, with a `payment.late_refund` event giving the reason, then moves to REFUNDED when it settles. If the provider refuses the refund, it goes to NEEDS_REVIEW.
+- **`payment.succeeded` while in NEEDS_REVIEW:** recorded, and `paid_satang` set if it was 0. A person decides from there.
+- **A second `payment.succeeded` with a new `event_id` on a paid order:** the status does not change, a `payment.duplicate` event is written, and reconciliation reports it as STATUS_MISMATCH. It is not refunded automatically, because the provider's duplicate delivery and a real second charge look the same from here.
+- **Refunding NEEDS_REVIEW:** allowed up to `paid_satang`, including on an amount mismatch. A full refund moves it to REFUNDED.
+- **Stock on refund:** FAILED to REFUNDED gives back stock and voucher, because GET confirmed nothing was delivered. COMPLETED to REFUNDED does not, because the player has the item. NEEDS_REVIEW to REFUNDED does not, because we do not know. This errs on selling less, never on overselling.
+- **Admin retry:** FAILED or NEEDS_REVIEW only, and only if the order is paid in full, reached IN_QUEUE before (so it still holds its stock and voucher), and has no refund. In practice a FAILED order nearly always has its automatic refund already, so retry is mainly for NEEDS_REVIEW.
 
 ## Consequences
 

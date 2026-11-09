@@ -6,8 +6,12 @@ info:
     All money is integer satang. Every error is RFC 9457 `application/problem+json`
     with a machine-readable `code`.
 
-    This file covers the endpoints built so far. Webhooks, auth, SSE, admin, `/readyz`
-    and `/metrics` from spec 8.1 are not built yet.
+    This file covers the endpoints built so far. Customer OTP, SSE, `GET /api/v1/admin/orders`,
+    `/readyz` and `/metrics` from spec 8.1 are not built yet.
+
+    Admin routes need the `inblack_admin_session` cookie from `POST /api/v1/admin/auth/login`.
+    Without it they answer 401 `UNAUTHENTICATED`, and with too low a role 403 `FORBIDDEN`. Roles
+    build on each other: viewer, support, finance, superadmin.
 servers:
   - url: http://localhost:8080
     description: Nginx in front of api-1 and api-2 (docker compose)
@@ -205,6 +209,321 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
 
+  /api/v1/webhooks/payment:
+    post:
+      summary: Payment events from the provider
+      description: |
+        Signed with `X-IBM-Signature: t=<unix_seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`.
+        Verified from the raw bytes. `t` more than 300 seconds away is refused.
+
+        A repeated `event_id` is processed once, also when copies arrive together, and answers
+        200 with outcome `duplicate`. See docs/adr/0002 and docs/adr/0004 for every case.
+      operationId: receivePaymentWebhook
+      parameters:
+        - name: X-IBM-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: '^t=[0-9]{1,12},v1=[0-9a-f]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentEvent' }
+      responses:
+        '200':
+          description: Recorded and committed, including events that changed nothing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received, outcome]
+                properties:
+                  received: { type: boolean, const: true }
+                  outcome:
+                    type: string
+                    examples: [paid, duplicate, amount_mismatch, late_paid, late_refund, payment_failed, failed_ignored, settled, already_settled, refund_unmatched, unknown_order]
+        '400': { $ref: '#/components/responses/ClientProblem' }
+        '401':
+          description: '`INVALID_SIGNATURE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '415': { $ref: '#/components/responses/ClientProblem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/auth/login:
+    post:
+      summary: Log in as an admin
+      description: Sets an httpOnly, SameSite=Strict session cookie. The session is stored in Postgres.
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 1, maxLength: 256 }
+      responses:
+        '200':
+          description: Logged in.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminIdentity' }
+        '400': { $ref: '#/components/responses/ClientProblem' }
+        '401':
+          description: '`INVALID_CREDENTIALS`, the same for an unknown email and a wrong password'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/auth/logout:
+    post:
+      summary: End the session
+      operationId: adminLogout
+      responses:
+        '204': { description: Ended, or there was no session. }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/auth/me:
+    get:
+      summary: Who is logged in. viewer and up.
+      operationId: adminMe
+      security: [{ adminSession: [] }]
+      responses:
+        '200':
+          description: The current admin.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminIdentity' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/orders/{id}/refund:
+    post:
+      summary: Refund all or part of an order. finance and up.
+      description: |
+        Writes a PENDING refund and answers 202. The worker then calls the provider, and the
+        refund settles from its answer or from the `payment.refunded` webhook. The order moves
+        to REFUNDED when settled refunds add up to `paid_satang`.
+
+        Only COMPLETED, FAILED, EXPIRED and NEEDS_REVIEW can be refunded. The total never goes
+        over `paid_satang`, also with parallel requests. Repeating a key with the same body returns
+        the first status and the same bytes, including stored refusals.
+      operationId: refundOrder
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/OrderId' } }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, pattern: '^[!-~]{1,255}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount_satang]
+              properties:
+                amount_satang: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '202':
+          description: The refund is on record and being sent.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [refund_id, order_id, amount_satang, status, remaining_satang]
+                properties:
+                  refund_id: { type: string }
+                  order_id: { $ref: '#/components/schemas/OrderId' }
+                  amount_satang: { $ref: '#/components/schemas/Satang' }
+                  status: { type: string, const: PENDING }
+                  remaining_satang: { $ref: '#/components/schemas/Satang' }
+        '400':
+          description: '`IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID`, `BAD_REQUEST`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`REFUND_EXCEEDS_PAID`, `ORDER_NOT_REFUNDABLE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`VALIDATION_ERROR`, `IDEMPOTENCY_KEY_REUSED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/orders/{id}/retry-fulfillment:
+    post:
+      summary: Queue fulfillment again. support and up.
+      description: |
+        For a FAILED or NEEDS_REVIEW order that is paid in full, reached the queue before and has
+        no refund. The worker asks mock-game first, so a top-up that already landed is not repeated.
+      operationId: retryFulfillment
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { $ref: '#/components/schemas/OrderId' } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '202':
+          description: Queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [order_id, status]
+                properties:
+                  order_id: { $ref: '#/components/schemas/OrderId' }
+                  status: { type: string, const: IN_QUEUE }
+        '400': { $ref: '#/components/responses/ClientProblem' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`INVALID_TRANSITION`, `REFUND_IN_PROGRESS`, `ORDER_NOT_RETRYABLE`, `FULFILLMENT_ALREADY_QUEUED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/audit-logs:
+    get:
+      summary: Admin actions, newest first. finance and up.
+      operationId: listAuditLogs
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, description: '`next_cursor` of the previous page', schema: { type: string, pattern: '^[1-9][0-9]{0,17}$' } }
+        - { name: action, in: query, schema: { type: string, pattern: '^[a-z_.]{1,64}$', examples: [order.refund] } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  next_cursor: { type: [string, 'null'] }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, admin_email, action, target, detail, created_at]
+                      properties:
+                        id: { type: string }
+                        admin_email: { type: string }
+                        action: { type: string }
+                        target: { type: [string, 'null'] }
+                        detail: { type: object }
+                        created_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/reconciliation:
+    post:
+      summary: Compare a settlement CSV with the system. finance and up.
+      description: |
+        The file goes as `text/csv`, or as the `file` field of a multipart form, up to 10 MB. The
+        first line must be `event_id,order_id,type,amount_satang,settled_at`. A bad line refuses
+        the whole file. `payment.failed` is ignored, because no money moved.
+
+        Without `from` and `to`, every money event in the system must be in the file. With them,
+        only events in that time range are checked for being missing from the file, and the check
+        of whether an order is fully refunded is skipped.
+      operationId: runReconciliation
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: The mismatches. An empty list means both sides agree to the satang.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows, counts, mismatches]
+                properties:
+                  rows: { type: integer, minimum: 0 }
+                  counts:
+                    type: object
+                    required: [MISSING_IN_SYSTEM, MISSING_AT_PROVIDER, AMOUNT_MISMATCH, STATUS_MISMATCH]
+                    additionalProperties: { type: integer, minimum: 0 }
+                  mismatches:
+                    type: array
+                    items:
+                      type: object
+                      required: [type, event_id, order_id, detail, provider_amount_satang, system_amount_satang]
+                      properties:
+                        type: { type: string, enum: [MISSING_IN_SYSTEM, MISSING_AT_PROVIDER, AMOUNT_MISMATCH, STATUS_MISMATCH] }
+                        event_id: { type: [string, 'null'] }
+                        order_id: { type: string }
+                        detail: { type: string }
+                        provider_amount_satang: { type: [integer, 'null'] }
+                        system_amount_satang: { type: [integer, 'null'] }
+        '400': { $ref: '#/components/responses/ClientProblem' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '413':
+          description: '`CSV_TOO_LARGE`, `HTTP_413` or `PAYLOAD_TOO_LARGE`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '415': { $ref: '#/components/responses/ClientProblem' }
+        '422':
+          description: '`CSV_INVALID`, `CSV_REQUIRED`, `VALIDATION_ERROR`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
   /api/v1/_test/reset:
     post:
       summary: Wipe all data and seed again
@@ -234,7 +553,19 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
 
 components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: inblack_admin_session
+
   responses:
+    ClientProblem:
+      description: A request the API refuses. See `code` in the body.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
     ServerProblem:
       description: '`INTERNAL_ERROR`, `DATABASE_BUSY`, `DATABASE_UNAVAILABLE` or `IDEMPOTENCY_RETRY`. Safe to retry with the same key.'
       content:
@@ -242,6 +573,24 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    AdminIdentity:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string }
+        role: { type: string, enum: [viewer, support, finance, superadmin] }
+
+    PaymentEvent:
+      type: object
+      required: [event_id, type, order_id, amount_satang, currency, occurred_at]
+      properties:
+        event_id: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,128}$' }
+        type: { type: string, enum: [payment.succeeded, payment.failed, payment.refunded] }
+        order_id: { type: string, pattern: '^[A-Za-z0-9_.:-]{1,128}$' }
+        amount_satang: { $ref: '#/components/schemas/Satang' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        occurred_at: { type: string, format: date-time }
+
     Satang:
       type: integer
       minimum: 0
