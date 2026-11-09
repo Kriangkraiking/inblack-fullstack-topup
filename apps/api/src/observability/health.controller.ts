@@ -1,36 +1,28 @@
-import { Controller, Get, Injectable, OnApplicationShutdown, Res } from '@nestjs/common';
+import { Controller, Get, Injectable, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { Redis } from 'ioredis';
 import { PROBLEM_CONTENT_TYPE, renderProblem } from '../common/problem.js';
 import { DbService } from '../db/db.service.js';
+import { OrderSignalService } from '../realtime/order-signal.service.js';
 import { MetricsService } from './metrics.service.js';
-import { CHECK_TIMEOUT_MS, evaluate } from './readiness.js';
+import { evaluate } from './readiness.js';
 
-/** Its own Redis connection. With the offline queue off, a ping during an outage fails at once. */
+/**
+ * Pings Redis on the stream signal connection rather than a connection of its own: while Redis
+ * is gone every reconnecting client costs DNS lookups, see OrderSignalService. Not connected
+ * means not ready, without waiting.
+ */
 @Injectable()
-export class ReadinessService implements OnApplicationShutdown {
-  private readonly redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
-    lazyConnect: true,
-    enableOfflineQueue: false,
-    maxRetriesPerRequest: 0,
-    connectTimeout: CHECK_TIMEOUT_MS,
-    retryStrategy: () => 1000,
-  });
-
-  constructor(private readonly db: DbService) {
-    this.redis.on('error', () => undefined); // The answer of /readyz is the report.
-    this.redis.connect().catch(() => undefined);
-  }
+export class ReadinessService {
+  constructor(
+    private readonly db: DbService,
+    private readonly signals: OrderSignalService,
+  ) {}
 
   check() {
     return evaluate({
       postgres: () => this.db.query('SELECT 1'),
-      redis: () => this.redis.ping(),
+      redis: () => this.signals.ping(),
     });
-  }
-
-  onApplicationShutdown(): void {
-    this.redis.disconnect();
   }
 }
 

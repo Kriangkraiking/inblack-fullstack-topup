@@ -16,9 +16,11 @@ type Listener = () => void;
 export class OrderSignalService implements OnApplicationShutdown {
   private readonly logger = new Logger(OrderSignalService.name);
   private readonly listeners = new Map<string, Set<Listener>>();
+  // Backs off to 3 s. While Redis's container is gone, each reconnect is a DNS lookup that can
+  // hang for 5 s in libuv's 4-thread pool, which Postgres connects need too (AI_LOG, P2).
   private readonly redis = new Redis(process.env.REDIS_URL ?? 'redis://redis:6379', {
     lazyConnect: true,
-    retryStrategy: () => 1000,
+    retryStrategy: (times: number) => Math.min(times * 500, 3000),
     maxRetriesPerRequest: null,
   });
   private lastWarning = 0;
@@ -37,6 +39,12 @@ export class OrderSignalService implements OnApplicationShutdown {
 
   get live(): boolean {
     return this.redis.status === 'ready';
+  }
+
+  /** For /readyz, on this same connection (PING is allowed in subscriber mode). */
+  async ping(): Promise<unknown> {
+    if (!this.live) throw new Error(`redis ${this.redis.status}`);
+    return this.redis.ping();
   }
 
   /** Returns the function that removes the listener, and the channel with the last one. */

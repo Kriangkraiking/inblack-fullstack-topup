@@ -23,7 +23,9 @@ export class OrderEventRelayService implements OnApplicationBootstrap, OnApplica
     lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 0,
-    retryStrategy: () => RECONNECT_MS,
+    // Backs off to 5 s: with Redis's container gone, each try is a DNS lookup that can hold one
+    // of libuv's 4 threads for 5 s, and the job pool's Postgres connects need those threads too.
+    retryStrategy: (times: number) => Math.min(times * 1000, 5000),
   });
   private client?: pg.Client;
   private stopping = false;

@@ -36,6 +36,9 @@ x-api-env: &api-env
   NODE_ENV: production
   APP_ENV: ${APP_ENV:-development}
   PORT: 3000
+  # DNS lookups use libuv's thread pool (4 by default). A lookup of a stopped container's name can
+  # hang 5 s, and a full pool then delays Postgres connects too. See AI_LOG, P2.
+  UV_THREADPOOL_SIZE: 16
   # inblack_app: not a superuser and not a table owner, see db/migrations/0004_app_role.sql.
   DATABASE_URL: ${DATABASE_URL:-postgresql://inblack_app:${APP_DB_PASSWORD:-change_this_local_app_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -167,6 +170,7 @@ services:
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-development}
+      UV_THREADPOOL_SIZE: 16
       DATABASE_URL: ${DATABASE_URL:-postgresql://inblack_app:${APP_DB_PASSWORD:-change_this_local_app_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       MOCK_GAME_URL: ${MOCK_GAME_URL:-http://mock-game:4020}
