@@ -63,7 +63,12 @@ function httpExceptionProblem(error: HttpException): ProblemFields {
   const status = error.getStatus();
   // The same body for every 404, so a hidden route looks exactly like a missing one.
   if (status === 404) return { status, code: 'NOT_FOUND', detail: 'no such resource' };
-  return { status, code: status === 400 ? 'BAD_REQUEST' : `HTTP_${status}`, detail: error.message };
+  // Not error.message: for a broken body it is the JSON parser's own text.
+  return {
+    status,
+    code: status === 400 ? 'BAD_REQUEST' : `HTTP_${status}`,
+    detail: STATUS_CODES[status] ?? 'request rejected',
+  };
 }
 
 export function toProblem(error: unknown): ProblemFields {

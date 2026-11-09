@@ -7,6 +7,7 @@ import request from 'supertest';
 import { APP_OPTIONS } from '../app-options.js';
 import { OrderAccessGuard } from '../orders/order-access.guard.js';
 import { TestResetController } from '../test-support/test-reset.controller.js';
+import { TestResetRepository } from '../test-support/test-reset.repository.js';
 import { ProblemError } from './problem.js';
 import { ProblemFilter } from './problem.filter.js';
 
@@ -30,7 +31,7 @@ class ProbeController {
 
 @Module({
   controllers: [ProbeController, TestResetController],
-  providers: [{ provide: APP_FILTER, useClass: ProblemFilter }],
+  providers: [TestResetRepository, { provide: APP_FILTER, useClass: ProblemFilter }],
 })
 class ProbeModule {}
 
@@ -90,6 +91,8 @@ describe('HTTP contract', () => {
       .expect(400);
 
     expect(response.headers['content-type']).toContain('application/problem+json');
+    // Not the JSON parser's own message.
+    expect((JSON.parse(response.text) as { detail: string }).detail).toBe('Bad Request');
   });
 
   it.each(['development', 'production', ''])(
