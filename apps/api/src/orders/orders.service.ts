@@ -41,7 +41,7 @@ export function orderNotFound(): ProblemError {
   return new ProblemError(404, 'ORDER_NOT_FOUND', 'no order matches these details');
 }
 
-function keyReused(): ProblemError {
+export function keyReused(): ProblemError {
   return new ProblemError(
     422,
     'IDEMPOTENCY_KEY_REUSED',

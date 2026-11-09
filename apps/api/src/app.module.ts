@@ -4,6 +4,7 @@ import { AdminAuthController } from './admin/admin-auth.controller.js';
 import { AdminAuthGuard } from './admin/admin-auth.guard.js';
 import { AdminAuthRepository } from './admin/admin-auth.repository.js';
 import { AdminAuthService } from './admin/admin-auth.service.js';
+import { AuditLogsController } from './admin/audit-logs.controller.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { CatalogController } from './catalog/catalog.controller.js';
@@ -18,6 +19,8 @@ import { OrderOpsRepository } from './orders/order-ops.repository.js';
 import { OrdersController } from './orders/orders.controller.js';
 import { OrdersRepository } from './orders/orders.repository.js';
 import { OrdersService } from './orders/orders.service.js';
+import { AdminOrdersController } from './refunds/admin-orders.controller.js';
+import { RefundsService } from './refunds/refunds.service.js';
 import { TestResetController } from './test-support/test-reset.controller.js';
 import { TestResetRepository } from './test-support/test-reset.repository.js';
 import { WebhooksController } from './webhooks/webhooks.controller.js';
@@ -28,7 +31,9 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
   imports: [DbModule],
   controllers: [
     AdminAuthController,
+    AdminOrdersController,
     AppController,
+    AuditLogsController,
     CatalogController,
     OrdersController,
     TestResetController,
@@ -46,6 +51,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     OrdersService,
     OrderAccessGuard,
     OutboxSignalService,
+    RefundsService,
     TestResetRepository,
     WebhooksRepository,
     WebhooksService,
