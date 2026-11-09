@@ -5,6 +5,14 @@ import { MetricsRepository, type BusinessCounts } from './metrics.repository.js'
 import { httpRequestDuration } from './request-observer.middleware.js';
 
 const CACHE_MS = 5000;
+const KNOWN_TOPICS = ['fulfillment.requested', 'refund.requested'];
+
+/** The known topics are always present, at 0 when empty, so an alert never sees a gap. */
+function queueSamples(rows: { topic: string; n: number }[]) {
+  const by = new Map(KNOWN_TOPICS.map((topic) => [topic, 0]));
+  for (const row of rows) by.set(row.topic, row.n);
+  return [...by].map(([topic, value]) => ({ labels: { topic }, value }));
+}
 
 @Injectable()
 export class MetricsService {
@@ -34,7 +42,7 @@ export class MetricsService {
       const byStatus = new Map(counts.ordersByStatus.map((r) => [r.status, r.n]));
       parts.push(
         renderGauge('inblack_orders', 'Orders by status (whole system, from Postgres)', ORDER_STATUSES.map((status) => ({ labels: { status }, value: byStatus.get(status) ?? 0 }))),
-        renderGauge('inblack_queue_depth', 'Outbox jobs not yet processed, by topic (whole system)', counts.queueByTopic.map((r) => ({ labels: { topic: r.topic }, value: r.n }))),
+        renderGauge('inblack_queue_depth', 'Outbox jobs not yet processed, by topic (whole system)', queueSamples(counts.queueByTopic)),
         renderGauge('inblack_fulfillment_retries', 'Game top-up attempts after the first one (whole system)', [{ value: counts.fulfillmentRetries }]),
         renderGauge('inblack_outbox_job_retries', 'Outbox job runs after the first one, all topics (whole system)', [{ value: counts.outboxRetries }]),
         renderGauge('inblack_dead_letters', 'Dead-letter jobs (whole system)', [
