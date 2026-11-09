@@ -36,10 +36,11 @@ export class OrderEventsRepository implements OrderEventSource {
       event_type: string;
       created_at: Date;
     }>(
-      `SELECT id::text AS id, to_status, from_status, event_type, created_at
-       FROM order_events
-       WHERE order_id = $1 AND id > $2::bigint
-       ORDER BY id
+      // ORDER BY the bigint column, not the text alias: as text, '10' sorts before '9'.
+      `SELECT e.id::text AS id, e.to_status, e.from_status, e.event_type, e.created_at
+       FROM order_events e
+       WHERE e.order_id = $1 AND e.id > $2::bigint
+       ORDER BY e.id
        LIMIT $3`,
       [orderId, afterId, limit],
     );
