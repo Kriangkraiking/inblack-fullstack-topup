@@ -11,3 +11,5 @@ npm-debug.log*
 .DS_Store
 .claude
 CLAUDE.md
+docs/SPEC.md
+docs/SPEC.pdf

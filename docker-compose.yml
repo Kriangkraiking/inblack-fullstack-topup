@@ -36,7 +36,7 @@ x-api-env: &api-env
   DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
   MOCK_PAY_URL: ${MOCK_PAY_URL:-http://mock-pay:4010}
-  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change_this_webhook_secret}
+  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
   ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
 
 services:
@@ -96,11 +96,11 @@ services:
       INSTANCE_ID: api-2
 
   # -------------------------
-  # Nginx Load Balancer
+  # Reverse proxy (Nginx round-robin)
   # -------------------------
-  nginx:
+  proxy:
     image: nginx:1.27-alpine
-    container_name: inblack-nginx
+    container_name: inblack-proxy
     restart: unless-stopped
     ports:
       - "8080:80"
@@ -214,7 +214,7 @@ services:
     environment:
       NODE_ENV: production
     depends_on:
-      nginx:
+      proxy:
         condition: service_healthy
     healthcheck:
       test:
