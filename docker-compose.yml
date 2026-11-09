@@ -12,6 +12,8 @@ x-api: &api
   restart: unless-stopped
   env_file: *env-file
   depends_on:
+    migrate:
+      condition: service_completed_successfully
     postgres:
       condition: service_healthy
     redis:
@@ -60,6 +62,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # -------------------------
+  # Migrations + seed (one-shot, safe to re-run)
+  # -------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    container_name: inblack-migrate
+    init: true
+    restart: "no"
+    env_file: *env-file
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # -------------------------
   # Redis
@@ -137,6 +157,8 @@ services:
       MOCK_GAME_URL: ${MOCK_GAME_URL:-http://mock-game:4020}
       ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
