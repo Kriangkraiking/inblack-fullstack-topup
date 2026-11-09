@@ -5,7 +5,6 @@ import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import request from 'supertest';
 import { APP_OPTIONS } from '../app-options.js';
-import { OrderAccessGuard } from '../orders/order-access.guard.js';
 import { MockPayResetClient } from '../test-support/mock-pay-reset.client.js';
 import { TestResetController } from '../test-support/test-reset.controller.js';
 import { TestResetRepository } from '../test-support/test-reset.repository.js';
@@ -141,13 +140,5 @@ describe('HTTP contract', () => {
 
     expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
     expect(resetRepository.wipeAndSeed).not.toHaveBeenCalled();
-  });
-});
-
-describe('OrderAccessGuard', () => {
-  it('turns every request away with 404 until auth exists', () => {
-    expect(() => new OrderAccessGuard().canActivate()).toThrow(
-      expect.objectContaining({ status: 404, code: 'ORDER_NOT_FOUND' }) as Error,
-    );
   });
 });

@@ -241,11 +241,4 @@ export class OrdersService {
     if (!order) throw orderNotFound();
     return renderOrder(order, await this.orders.findItems(order.id));
   }
-
-  /** Callers must have checked ownership first. See OrderAccessGuard. */
-  async getById(id: string) {
-    const order = await this.orders.findOrderById(id);
-    if (!order) throw orderNotFound();
-    return renderOrder(order, await this.orders.findItems(order.id));
-  }
 }
