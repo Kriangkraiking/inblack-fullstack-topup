@@ -139,4 +139,38 @@ describe('parseSettlementCsv', () => {
       expect.objectContaining({ status: 422, code: 'CSV_INVALID' }) as Error,
     );
   });
+
+  describe('pending refunds', () => {
+    const NOW = new Date('2026-11-06T12:00:00Z');
+    const pending = (minutesOld: number, hasOpenJob: boolean) => ({
+      refundRef: 'rf_1',
+      orderId: 'O1',
+      amountSatang: 5000,
+      createdAt: new Date(NOW.getTime() - minutesOld * 60_000),
+      hasOpenJob,
+    });
+    const withPending = (refund: ReturnType<typeof pending>): SystemSnapshot => ({
+      ...snapshot([event('e1', 'payment.succeeded', 1000)]),
+      pendingRefunds: [refund],
+    });
+    const rows = [row('e1', 'payment.succeeded', 1000)];
+
+    it('leaves a fresh refund that a job is still sending alone', () => {
+      expect(compareSettlement(rows, withPending(pending(1, true)), {}, NOW)).toEqual([]);
+    });
+
+    it('reports a refund no job will send', () => {
+      const found = compareSettlement(rows, withPending(pending(1, false)), {}, NOW);
+      expect(found.map((m) => [m.type, m.order_id, m.system_amount_satang])).toEqual([
+        ['STATUS_MISMATCH', 'O1', 5000],
+      ]);
+      expect(found[0].detail).toMatch(/no job/);
+    });
+
+    it('reports a refund PENDING for longer than the limit', () => {
+      const found = compareSettlement(rows, withPending(pending(16, true)), {}, NOW);
+      expect(found.map((m) => m.type)).toEqual(['STATUS_MISMATCH']);
+      expect(found[0].detail).toMatch(/16 minutes/);
+    });
+  });
 });

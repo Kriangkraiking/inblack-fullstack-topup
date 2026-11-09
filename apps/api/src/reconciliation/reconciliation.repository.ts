@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { toSatang } from '@inblack/domain';
 import { DbService } from '../db/db.service.js';
-import type { SystemEvent, SystemOrder, SystemSnapshot } from './compare-settlement.js';
+import type {
+  PendingRefund,
+  SystemEvent,
+  SystemOrder,
+  SystemSnapshot,
+} from './compare-settlement.js';
 
 /** All SQL for reconciliation. Reads only. */
 @Injectable()
@@ -61,6 +66,29 @@ export class ReconciliationRepository {
         });
       }
     }
-    return { events, orders };
+    return { events, orders, pendingRefunds: await this.loadPendingRefunds() };
+  }
+
+  private async loadPendingRefunds(): Promise<PendingRefund[]> {
+    const { rows } = await this.db.query<{
+      refund_ref: string;
+      order_id: string;
+      amount_satang: string;
+      created_at: Date;
+      has_open_job: boolean;
+    }>(
+      `SELECT r.refund_ref, r.order_id, r.amount_satang, r.created_at,
+              EXISTS (SELECT 1 FROM outbox j
+                      WHERE j.topic = 'refund.requested' AND j.processed_at IS NULL
+                        AND j.payload->>'refund_id' = r.id::text) AS has_open_job
+       FROM refunds r WHERE r.status = 'PENDING' ORDER BY r.id`,
+    );
+    return rows.map((row) => ({
+      refundRef: row.refund_ref,
+      orderId: row.order_id,
+      amountSatang: toSatang(row.amount_satang),
+      createdAt: row.created_at,
+      hasOpenJob: row.has_open_job,
+    }));
   }
 }

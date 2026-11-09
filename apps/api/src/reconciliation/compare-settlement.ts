@@ -34,10 +34,24 @@ export interface SystemEvent {
   settledRefund: boolean;
 }
 
+/** A refund the system counts against the paid amount but the provider has not confirmed. */
+export interface PendingRefund {
+  refundRef: string;
+  orderId: string;
+  amountSatang: number;
+  createdAt: Date;
+  /** An open outbox job will still send it to the provider. */
+  hasOpenJob: boolean;
+}
+
 export interface SystemSnapshot {
   events: SystemEvent[];
   orders: Map<string, SystemOrder>;
+  pendingRefunds?: PendingRefund[];
 }
+
+/** A refund job retries for a few minutes at most, see REFUND_MAX_ATTEMPTS in ADR 0002. */
+export const PENDING_REFUND_LIMIT_MS = 15 * 60 * 1000;
 
 export interface Window {
   from?: Date;
@@ -54,6 +68,7 @@ export function compareSettlement(
   rows: readonly SettlementRow[],
   system: SystemSnapshot,
   window: Window = {},
+  now: Date = new Date(),
 ): Mismatch[] {
   const mismatches: Mismatch[] = [];
   const events = new Map(system.events.map((event) => [event.eventId, event]));
@@ -143,6 +158,18 @@ export function compareSettlement(
           refunded, order.paidSatang);
       }
     }
+  }
+
+  // Money the system holds back from the customer with no answer from the provider. Nothing
+  // will finish a refund with no open job, and one stuck past the limit needs a person.
+  for (const refund of system.pendingRefunds ?? []) {
+    const age = now.getTime() - refund.createdAt.getTime();
+    if (refund.hasOpenJob && age <= PENDING_REFUND_LIMIT_MS) continue;
+    add('STATUS_MISMATCH', null, refund.orderId,
+      refund.hasOpenJob
+        ? `refund ${refund.refundRef} is still PENDING after ${Math.floor(age / 60000)} minutes`
+        : `refund ${refund.refundRef} is PENDING and no job will send it`,
+      null, refund.amountSatang);
   }
 
   return mismatches;
