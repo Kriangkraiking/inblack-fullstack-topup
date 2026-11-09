@@ -23,6 +23,7 @@ import { ReconciliationController } from './reconciliation/reconciliation.contro
 import { ReconciliationRepository } from './reconciliation/reconciliation.repository.js';
 import { AdminOrdersController } from './refunds/admin-orders.controller.js';
 import { RefundsService } from './refunds/refunds.service.js';
+import { MockPayResetClient } from './test-support/mock-pay-reset.client.js';
 import { TestResetController } from './test-support/test-reset.controller.js';
 import { TestResetRepository } from './test-support/test-reset.repository.js';
 import { WebhooksController } from './webhooks/webhooks.controller.js';
@@ -49,6 +50,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AppService,
     CatalogRepository,
     CatalogService,
+    MockPayResetClient,
     OrderOpsRepository,
     OrdersRepository,
     OrdersService,

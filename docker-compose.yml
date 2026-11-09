@@ -217,6 +217,8 @@ services:
     init: true
     restart: unless-stopped
     environment:
+      # test turns on POST /_test/reset, which POST /api/v1/_test/reset calls. Off otherwise.
+      APP_ENV: ${APP_ENV:-development}
       WEBHOOK_URL: ${WEBHOOK_URL:-http://proxy/api/v1/webhooks/payment}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
     ports:

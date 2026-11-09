@@ -6,6 +6,7 @@ import type { Request } from 'express';
 import request from 'supertest';
 import { APP_OPTIONS } from '../app-options.js';
 import { OrderAccessGuard } from '../orders/order-access.guard.js';
+import { MockPayResetClient } from '../test-support/mock-pay-reset.client.js';
 import { TestResetController } from '../test-support/test-reset.controller.js';
 import { TestResetRepository } from '../test-support/test-reset.repository.js';
 import { ProblemError } from './problem.js';
@@ -30,11 +31,13 @@ class ProbeController {
 }
 
 const resetRepository = { wipeAndSeed: vi.fn() };
+const mockPayReset = { reset: vi.fn() };
 
 @Module({
   controllers: [ProbeController, TestResetController],
   providers: [
     { provide: TestResetRepository, useValue: resetRepository },
+    { provide: MockPayResetClient, useValue: mockPayReset },
     { provide: APP_FILTER, useClass: ProblemFilter },
   ],
 })
@@ -105,22 +108,39 @@ describe('HTTP contract', () => {
     async (appEnv) => {
       vi.stubEnv('APP_ENV', appEnv);
       resetRepository.wipeAndSeed.mockClear();
+      mockPayReset.reset.mockClear();
 
       const reset = await request(server()).post('/api/v1/_test/reset').expect(404);
       const unknown = await request(server()).post('/api/v1/_test/other').expect(404);
 
       expect(reset.text).toBe(unknown.text);
       expect(resetRepository.wipeAndSeed).not.toHaveBeenCalled();
+      expect(mockPayReset.reset).not.toHaveBeenCalled();
     },
   );
 
-  it('resets when APP_ENV is test', async () => {
+  it('resets the database and mock-pay when APP_ENV is test', async () => {
     vi.stubEnv('APP_ENV', 'test');
     resetRepository.wipeAndSeed.mockClear();
+    mockPayReset.reset.mockClear();
 
     await request(server()).post('/api/v1/_test/reset').expect(200);
 
+    expect(mockPayReset.reset).toHaveBeenCalledOnce();
     expect(resetRepository.wipeAndSeed).toHaveBeenCalledOnce();
+  });
+
+  it('wipes nothing when mock-pay cannot be reset', async () => {
+    vi.stubEnv('APP_ENV', 'test');
+    resetRepository.wipeAndSeed.mockClear();
+    mockPayReset.reset.mockRejectedValueOnce(
+      new ProblemError(503, 'TEST_RESET_NOT_CONFIGURED', 'run mock-pay with APP_ENV=test'),
+    );
+
+    const response = await request(server()).post('/api/v1/_test/reset').expect(503);
+
+    expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+    expect(resetRepository.wipeAndSeed).not.toHaveBeenCalled();
   });
 });
 
