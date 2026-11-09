@@ -409,6 +409,14 @@ async function s1a() {
     replies: tally(replies), replicas: instances(replies), sold_qty: sold, ...state,
   });
   await inPool(won, 50, (r) => pay(r.json.order_id, r.json.total_satang));
+  // mock-pay answers before its webhook lands, so drained() alone can pass while every order is
+  // still PENDING_PAYMENT. Wait for the webhooks first.
+  const wonIds = won.map((r) => r.json.order_id).filter((id) => /^ORD-\d{13}-\d{3}$/.test(id));
+  const idList = wonIds.map((id) => `'${id}'`).join(',') || `''`;
+  await waitFor('every winner to leave PENDING_PAYMENT', async () => {
+    const [r] = await q(`SELECT count(*)::int n FROM orders WHERE id IN (${idList}) AND status = 'PENDING_PAYMENT'`);
+    return r.n === 0 ? r : false;
+  }, 120_000, 500);
   await waitDrained();
   const stats = await gameStats();
   const delivered = won.reduce((sum, r) => sum + (stats[`${r.json.order_id}:${FLASH}`] ?? 0) * r.json.items[0].qty, 0);
