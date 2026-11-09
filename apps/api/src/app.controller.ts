@@ -9,4 +9,10 @@ export class AppController {
   getStatus() {
     return this.appService.getStatus();
   }
+
+  // Liveness only: must never touch Postgres, Redis or any other dependency.
+  @Get('healthz')
+  getHealth() {
+    return { status: 'ok' };
+  }
 }

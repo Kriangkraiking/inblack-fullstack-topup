@@ -27,4 +27,10 @@ describe('AppController', () => {
       vi.unstubAllEnvs();
     });
   });
+
+  describe('healthz', () => {
+    it('should report ok', () => {
+      expect(appController.getHealth()).toEqual({ status: 'ok' });
+    });
+  });
 });

@@ -22,7 +22,18 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
+      .expect('X-Instance', 'api-test')
       .expect({ status: 'ok', service: 'api', instance: 'api-test' });
+  });
+
+  it('/healthz (GET)', () => {
+    vi.stubEnv('INSTANCE_ID', 'api-test');
+
+    return request(app.getHttpServer())
+      .get('/healthz')
+      .expect(200)
+      .expect('X-Instance', 'api-test')
+      .expect({ status: 'ok' });
   });
 
   afterEach(async () => {
