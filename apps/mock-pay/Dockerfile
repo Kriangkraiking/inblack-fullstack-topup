@@ -1,11 +1,8 @@
+# Build context is the repo root. No dependencies or build step, so one stage is enough.
 FROM node:22-alpine
-
+ENV NODE_ENV=production
 WORKDIR /app
-
-COPY package*.json ./
-
-COPY server.js ./
-
+COPY apps/mock-pay/package.json apps/mock-pay/server.js ./
+USER node
 EXPOSE 4010
-
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
