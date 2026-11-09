@@ -36,6 +36,8 @@ const API = 'http://127.0.0.1:8080';
 const PAY = 'http://127.0.0.1:4010';
 const GAME = 'http://127.0.0.1:4020';
 const SECRET = 'whsec_test_inblackm_2026';
+// Cookie requests that change data must name an allowed Origin (CSRF, ADR 0005). Compose default.
+const ORIGIN = 'http://localhost:8080';
 const PG = 'inblack-postgres';
 const FLASH = 'FLASH-SKIN-01';
 const D1000 = 'DIAMOND-1000';
@@ -223,7 +225,7 @@ async function login() {
 }
 function refund(session, orderId, amount, idemKey = key()) {
   return http('POST', `${API}/api/v1/admin/orders/${orderId}/refund`, {
-    headers: { ...jsonHeaders, Cookie: session, 'Idempotency-Key': idemKey },
+    headers: { ...jsonHeaders, Cookie: session, Origin: ORIGIN, 'Idempotency-Key': idemKey },
     body: JSON.stringify({ amount_satang: amount, reason: 'audit' }),
   }).then((r) => ({ ...r, amount, key: idemKey }));
 }
@@ -767,7 +769,7 @@ async function s3() {
 
   // ---------- 5. Reconciliation ----------
   const { csv, rows: all } = await settlementRows();
-  const rec = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, 'Content-Type': 'text/csv' }, body: csv });
+  const rec = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, Origin: ORIGIN, 'Content-Type': 'text/csv' }, body: csv });
   const owed = (await q(`SELECT count(*)::int rows, coalesce(sum(amount_satang),0)::bigint satang FROM refunds WHERE status='PENDING'`))[0];
   check('s5/clean', 5, 'POST /admin/reconciliation with the whole, unfiltered mock-pay CSV', rec.status === 200 && rec.json.mismatches.length === 0, { status: rec.status, rows: rec.json?.rows, csv_rows: all.length, counts: rec.json?.counts, first: rec.json?.mismatches?.slice(0, 3), pending_refunds_not_reported: owed });
 
@@ -780,7 +782,7 @@ async function s3() {
   const lines = tampered.trim().split('\n');
   const paidLine = lines.findIndex((l) => l.includes(',payment.succeeded,') && !l.includes(victim.order_id));
   lines[paidLine] = lines[paidLine].replace(/,(\d+),/, (_, a) => `,${Number(a) + 1},`);
-  const rec2 = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, 'Content-Type': 'text/csv' }, body: `${lines.join('\n')}\n` });
+  const rec2 = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, Origin: ORIGIN, 'Content-Type': 'text/csv' }, body: `${lines.join('\n')}\n` });
   const types = rec2.json?.counts ?? {};
   const caughtRefund = rec2.json?.mismatches?.some((m) => m.order_id === victim.order_id);
   check('s5/detects', 5, 'a refund made only at the provider and a CSV amount changed by 1 satang are both reported', caughtRefund && types.AMOUNT_MISMATCH >= 1, { counts: types, provider_only_refund_reported: caughtRefund, order_after: victimRow.status, db_refunded: victimRow.refunded_satang });
@@ -801,7 +803,7 @@ async function s3() {
   const providerSum = (await settlementRows()).rows.filter((r) => r.order_id === twin.order_id && r.type === 'payment.refunded').reduce((s, r) => s + r.amount_satang, 0);
   const dbSettled = finalRows.filter((r) => r.status === 'SUCCEEDED').reduce((s, r) => s + r.amount_satang, 0);
   const stuck = finalRows.filter((r) => r.status === 'PENDING');
-  const rec3 = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, 'Content-Type': 'text/csv' }, body: (await settlementRows()).csv });
+  const rec3 = await http('POST', `${API}/api/v1/admin/reconciliation`, { headers: { Cookie: s1, Origin: ORIGIN, 'Content-Type': 'text/csv' }, body: (await settlementRows()).csv });
   check('s3/same-amount-order', 5, 'two 5000 refunds, provider receives the second row first, worker restarted: both rows finish and match the provider', stuck.length === 0 && dbSettled === providerSum && providerSum === 10000, {
     accepted: [r2a.status, r2b.status], provider_post: post.status, rows: finalRows, db_settled: dbSettled, provider_refunded: providerSum, reconciliation_flags_this_order: rec3.json?.mismatches?.filter((m) => m.order_id === twin.order_id).length,
   });

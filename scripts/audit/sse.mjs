@@ -47,7 +47,7 @@ async function http(method, path, { headers = {}, body } = {}) {
   } catch {
     json = undefined;
   }
-  return { status: res.status, text, json, type: res.headers.get('content-type') ?? '' };
+  return { status: res.status, text, json, type: res.headers.get('content-type') ?? '', headers: { 'retry-after': res.headers.get('retry-after') } };
 }
 
 async function newOrder() {
@@ -57,7 +57,16 @@ async function newOrder() {
     body: JSON.stringify({ email, game_uid: `ssePlayer${seq}`, payment_method: 'PROMPTPAY', voucher_code: null, items: [{ sku: 'DIAMOND-1000', qty: 1 }] }),
   });
   if (r.status !== 201) throw new Error(`create order: ${r.status} ${r.text}`);
-  const t = await http('POST', '/api/v1/orders/track', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: r.json.order_id, email }) });
+  // Track allows 10 calls a minute per IP (SPEC 8.4) and this audit makes more, so it waits out
+  // a 429 as any client would. The stream checks below do not depend on track.
+  let t;
+  for (let attempt = 0; ; attempt += 1) {
+    t = await http('POST', '/api/v1/orders/track', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_id: r.json.order_id, email }) });
+    if (t.status !== 429 || attempt >= 3) break;
+    const wait = Number(t.headers['retry-after'] ?? 60);
+    log(`track rate limited, waiting ${wait} s`);
+    await sleep((wait + 1) * 1000);
+  }
   if (t.status !== 200 || typeof t.json?.events_token !== 'string') throw new Error(`track: ${t.status} ${t.text}`);
   if (JSON.stringify(t.json).includes('actor')) throw new Error('track answer leaks an actor');
   return { id: r.json.order_id, total: r.json.total_satang, token: t.json.events_token };
