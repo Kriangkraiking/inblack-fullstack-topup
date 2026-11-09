@@ -1,0 +1,351 @@
+openapi: 3.1.0
+info:
+  title: InBlack Top-Up API
+  version: 0.1.0
+  description: |
+    All money is integer satang. Every error is RFC 9457 `application/problem+json`
+    with a machine-readable `code`.
+
+    This file covers the endpoints built so far. Webhooks, auth, SSE, admin, `/readyz`
+    and `/metrics` from spec 8.1 are not built yet.
+servers:
+  - url: http://localhost:8080
+    description: Nginx in front of api-1 and api-2 (docker compose)
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness. Does not touch any dependency.
+      operationId: getHealth
+      responses:
+        '200':
+          description: The process is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: ok }
+
+  /api/v1/products:
+    get:
+      summary: List active products
+      operationId: listProducts
+      responses:
+        '200':
+          description: Active products, sorted by SKU. Cacheable for 15 seconds.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: ['public, max-age=15'] }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/products/{slug}:
+    get:
+      summary: Get one active product
+      operationId: getProduct
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, examples: [flash-skin-01] }
+      responses:
+        '200':
+          description: The product. Cacheable for 15 seconds.
+          headers:
+            Cache-Control:
+              schema: { type: string, examples: ['public, max-age=15'] }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404':
+          description: '`PRODUCT_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/orders:
+    post:
+      summary: Create an order and reserve its stock and voucher
+      description: |
+        The price is calculated here and locked onto the order. Any amount sent by the
+        client is ignored.
+
+        Repeating a key with the same body returns the first status and the same body
+        byte for byte, also for parallel requests, and creates one order. This includes
+        stored business errors such as `OUT_OF_STOCK`. Bodies are compared as JSON, so
+        key order and whitespace do not matter. Keys are kept for at least 24 hours.
+
+        A body that fails `VALIDATION_ERROR`, `EMPTY_CART` or `INVALID_QUANTITY` is not
+        stored, so the client can fix it and retry with the same key. A 5XX is not stored
+        either, because nothing was committed.
+      operationId: createOrder
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+            example:
+              email: buyer@example.com
+              game_uid: player_01
+              payment_method: CARD
+              voucher_code: SAVE10
+              items:
+                - { sku: DIAMOND-1000, qty: 2 }
+      responses:
+        '201':
+          description: The order was created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400':
+          description: '`IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` or `BAD_REQUEST` for broken JSON'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`OUT_OF_STOCK`, `VOUCHER_EXHAUSTED` or `PER_CUSTOMER_LIMIT`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: |
+            `IDEMPOTENCY_KEY_REUSED`, `VALIDATION_ERROR`, `EMPTY_CART`, `INVALID_QUANTITY`,
+            `PRODUCT_NOT_FOUND`, `PER_ORDER_LIMIT`, `VOUCHER_NOT_FOUND`, `VOUCHER_INACTIVE`
+            or `VOUCHER_MIN_SUBTOTAL`
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/orders/track:
+    post:
+      summary: Look up an order as a guest
+      description: An unknown order and a wrong email get the same 404 answer.
+      operationId: trackOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order_id, email]
+              properties:
+                order_id: { $ref: '#/components/schemas/OrderId' }
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`INVALID_ORDER_ID` when the format or checksum is wrong, `VALIDATION_ERROR` for a bad email'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/orders/{id}:
+    get:
+      summary: Get an order as its owner or an admin
+      description: Always answers 404 until customer and admin sessions exist.
+      operationId: getOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/v1/_test/reset:
+    post:
+      summary: Wipe all data and seed again
+      description: |
+        Only with `APP_ENV=test` and `TEST_ADMIN_DATABASE_URL` set. In any other `APP_ENV`
+        it answers exactly like a route that does not exist.
+      operationId: resetForTests
+      responses:
+        '200':
+          description: Data was wiped and seeded again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, const: reset }
+        '404':
+          description: '`NOT_FOUND`, when `APP_ENV` is not `test`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: '`TEST_RESET_NOT_CONFIGURED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+components:
+  responses:
+    ServerProblem:
+      description: '`INTERNAL_ERROR`, `DATABASE_BUSY`, `DATABASE_UNAVAILABLE` or `IDEMPOTENCY_RETRY`. Safe to retry with the same key.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    Satang:
+      type: integer
+      minimum: 0
+      description: Amount in satang (1/100 baht).
+
+    OrderId:
+      type: string
+      pattern: '^ORD-[0-9]{13}-[0-9]{3}$'
+      description: The last 3 digits are the first 13 digits mod 997.
+      examples: [ORD-2587965432159-229]
+
+    Problem:
+      type: object
+      required: [type, title, status, code, detail]
+      properties:
+        type: { type: string, format: uri, examples: ['urn:inblack:problem:OUT_OF_STOCK'] }
+        title: { type: string, examples: [Conflict] }
+        status: { type: integer, examples: [409] }
+        code: { type: string, examples: [OUT_OF_STOCK] }
+        detail: { type: string }
+
+    Product:
+      type: object
+      required: [sku, slug, name, price_satang, stock, max_qty_per_order, max_qty_per_email]
+      properties:
+        sku: { type: string, examples: [FLASH-SKIN-01] }
+        slug: { type: string, examples: [flash-skin-01] }
+        name: { type: string }
+        price_satang: { $ref: '#/components/schemas/Satang' }
+        stock:
+          type: [integer, 'null']
+          minimum: 0
+          description: Units left. null means unlimited.
+        max_qty_per_order: { type: [integer, 'null'], minimum: 1 }
+        max_qty_per_email: { type: [integer, 'null'], minimum: 1 }
+
+    PaymentMethod:
+      type: string
+      enum: [PROMPTPAY, TRUEMONEY, CARD]
+
+    CreateOrderRequest:
+      type: object
+      required: [email, game_uid, payment_method, items]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        game_uid:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{4,32}$'
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        voucher_code: { type: [string, 'null'], examples: [SAVE10] }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Lines with the same SKU are merged, up to 1000 of one SKU.
+          items:
+            type: object
+            required: [sku, qty]
+            properties:
+              sku: { type: string }
+              qty: { type: integer, minimum: 1, maximum: 1000 }
+
+    Order:
+      type: object
+      required:
+        - order_id
+        - status
+        - email
+        - game_uid
+        - payment_method
+        - voucher_code
+        - currency
+        - items
+        - subtotal_satang
+        - discount_satang
+        - net_satang
+        - fee_satang
+        - total_satang
+        - vat_satang
+        - paid_satang
+        - refunded_satang
+        - expires_at
+        - created_at
+        - payment_url
+      properties:
+        order_id: { $ref: '#/components/schemas/OrderId' }
+        status:
+          type: string
+          enum:
+            - PENDING_PAYMENT
+            - PAID
+            - IN_QUEUE
+            - IN_PROGRESS
+            - COMPLETED
+            - FAILED
+            - REFUNDED
+            - EXPIRED
+            - PAYMENT_FAILED
+            - NEEDS_REVIEW
+        email: { type: string }
+        game_uid: { type: string }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        voucher_code: { type: [string, 'null'] }
+        currency: { type: string, const: THB }
+        items:
+          type: array
+          items:
+            type: object
+            required: [sku, name, unit_price_satang, qty, line_total_satang]
+            properties:
+              sku: { type: string }
+              name: { type: string, description: Product name when the order was created. }
+              unit_price_satang: { $ref: '#/components/schemas/Satang' }
+              qty: { type: integer, minimum: 1 }
+              line_total_satang: { $ref: '#/components/schemas/Satang' }
+        subtotal_satang: { $ref: '#/components/schemas/Satang' }
+        discount_satang: { $ref: '#/components/schemas/Satang' }
+        net_satang: { $ref: '#/components/schemas/Satang' }
+        fee_satang: { $ref: '#/components/schemas/Satang' }
+        total_satang: { $ref: '#/components/schemas/Satang' }
+        vat_satang: { $ref: '#/components/schemas/Satang' }
+        paid_satang: { $ref: '#/components/schemas/Satang' }
+        refunded_satang: { $ref: '#/components/schemas/Satang' }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        payment_url:
+          type: string
+          format: uri
+          description: The mock-pay checkout page for the customer's browser to open.
