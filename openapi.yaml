@@ -466,6 +466,9 @@ paths:
         Without `from` and `to`, every money event in the system must be in the file. With them,
         only events in that time range are checked for being missing from the file, and the check
         of whether an order is fully refunded is skipped.
+
+        A refund that is PENDING with no open job to send it, or PENDING for more than 15 minutes,
+        is reported as `STATUS_MISMATCH` with `event_id` null, whatever the file holds.
       operationId: runReconciliation
       security: [{ adminSession: [] }]
       parameters:
@@ -529,7 +532,9 @@ paths:
       summary: Wipe all data and seed again
       description: |
         Only when `migrate` and the API both run with `APP_ENV=test`. In any other `APP_ENV`
-        it answers exactly like a route that does not exist.
+        it answers exactly like a route that does not exist. It empties mock-pay first (its
+        journal, pending webhooks and settlement CSV), which needs mock-pay to run with
+        `APP_ENV=test` as well.
       operationId: resetForTests
       responses:
         '200':
@@ -547,7 +552,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '503':
-          description: '`TEST_RESET_NOT_CONFIGURED`'
+          description: '`TEST_RESET_NOT_CONFIGURED` (migrate or mock-pay not in test mode), `TEST_RESET_PROVIDER_UNAVAILABLE`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }

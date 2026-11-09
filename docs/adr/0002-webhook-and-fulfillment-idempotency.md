@@ -87,7 +87,22 @@ Same single-transaction idempotency as orders (ADR 0001), scoped per order. The 
 
 The API only writes the PENDING row and the job, and the worker calls `POST /refunds`. `refund_id` is `refunds.refund_ref`, random rather than the identity value, because `_test/reset` restarts identities and mock-pay keeps its journal. Resending it is always safe.
 
-Settling is one SQL function, `settle_refund`, used by both the webhook and the answer to `POST /refunds`, whichever comes first. The webhook names no refund, so it matches on amount. Refunds of one order with the same amount are interchangeable, each event settles exactly one, and an event already used is a no-op, so the total is right whichever pairing happens. `provider_event_id` is unique, which backs this up.
+Settling is one SQL function, `settle_refund`, used by both the webhook and the answer to `POST /refunds`, whichever comes first. The webhook names no refund, so it matches on amount, and the worker's answer prefers its own row. Each event settles exactly one PENDING row, and an event already used is a no-op. `provider_event_id` is unique, which backs this up.
+
+Matching on amount alone was not enough (audit, `s3/same-amount-order`). With two PENDING rows A and B of 5000, a worker that sent B and died left B's webhook to settle A, the lowest id. The restarted job for A then saw a row that was not PENDING and closed without sending, and B's job got `already_settled`. The provider had one refund, the database one settled and one stuck PENDING, and nothing would ever send A. The fix, chosen as the simplest one that can be argued for every interleaving: **every refund job sends its own `refund_id` unless its row is FAILED**, even when a webhook already settled that row. Why the totals then match:
+
+- `refund_id` is idempotent at the provider, so each row produces at most one provider refund, and every row that is not refused produces exactly one once its job gets an answer.
+- Each provider event settles exactly one PENDING row of the same order and amount, and never twice.
+- So per order and amount, settled rows = provider refunds, whichever row an event lands on. A row settled by another row's event still sends its own `refund_id`, and the refund that creates settles the row that is still PENDING.
+- What is left PENDING is only a row whose job ran out of retries with no answer, which is real uncertainty. Reconciliation reports it.
+
+An alternative was a `sent_at` column, matching webhooks only to rows already sent. It does not remove the ambiguity between two sent rows, so the job still has to keep sending, and it adds a write before every POST.
+
+**Payments the provider never saw.** The review team signs its own `payment.succeeded` webhooks, so mock-pay can be asked to refund an order it has no payment for. The worker sends `paid_satang` and the `event_id` of the webhook that paid the order with every `POST /refunds`. mock-pay uses them only when it has no payment for that order: it records the payment under that `event_id` (in its journal and settlement file, without sending a webhook), then checks the balance as usual. A payment it already knows is never changed by `paid_satang`. Reconciliation then sees the same `event_id` and amount on both sides.
+
+**Reconciliation** also reports, as `STATUS_MISMATCH`, every PENDING refund that no open job will send, and every PENDING refund older than 15 minutes.
+
+**Stock and voucher use on a refund.** A full refund returns the holds when the order was FAILED, or when it never reached `IN_QUEUE` (for example NEEDS_REVIEW after an amount mismatch), because nothing went to the game. Such an order may have returned them already on its way through EXPIRED or PAYMENT_FAILED, so migration 0007 adds `order_hold_releases`: `release_order_holds` gives stock and voucher use back only when it changes that row from held to released. A late payment that re-acquires (ADR 0004) marks it held again. The expiry worker uses the same function.
 
 A refund the provider refuses goes to FAILED, gives its amount back, and the order goes to NEEDS_REVIEW. A refund that runs out of retries stays PENDING, because the provider may have done it, so the amount stays reserved and a late webhook can still settle it.
 
