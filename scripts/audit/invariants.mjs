@@ -106,7 +106,7 @@ async function compose(args, { withOverride = true, timeoutMs = 600_000 } = {}) 
 function writeOverride(game = {}) {
   const rates = { FAIL_RATE: 0, TIMEOUT_RATE: 0, SUCCESS_BUT_TIMEOUT_RATE: 0, LATENCY_MS: 0, ...game };
   const env = Object.entries(rates).map(([k, v]) => `      ${k}: "${v}"`).join('\n');
-  const test = ['migrate', 'api-1', 'api-2', 'worker']
+  const test = ['migrate', 'api-1', 'api-2', 'worker', 'mock-pay']
     .map((s) => `  ${s}:\n    environment:\n      APP_ENV: test`)
     .join('\n');
   fs.writeFileSync(OVERRIDE, `services:\n${test}\n  mock-game:\n    environment:\n${env}\n`);
@@ -720,10 +720,28 @@ async function s3() {
   const reviewRefunds = await Promise.all([refund(s1, mismatch.order_id, mm.paid_satang), refund(s2, mismatch.order_id, mm.paid_satang), refund(s1, failedThenPaid.order_id, failedThenPaid.total_satang), refund(s2, failedThenPaid.order_id, failedThenPaid.total_satang)]);
   await waitStatus([mismatch.order_id, failedThenPaid.order_id], ['REFUNDED']);
   const flashAfter = await flashState();
-  if (flashAfter.stock + flashAfter.active !== flashHeld.stock + flashHeld.active) {
-    note(`s3 amount_mismatch order refunded in full: stock+active went ${flashHeld.stock + flashHeld.active} -> ${flashAfter.stock + flashAfter.active}, the unit is never returned to sale`);
-  }
+  check('s3/review-refund-returns-stock', 1, 'amount_mismatch order (never queued) refunded in full twice at once: FLASH stock+active back to 100', flashAfter.stock + flashAfter.active === flashHeld.stock + flashHeld.active && flashAfter.stock + flashAfter.active === 100, { before: flashHeld, after: flashAfter });
   log(`review refunds ${JSON.stringify(tally(reviewRefunds))}`);
+
+  // Paid only by a webhook signed here, as the review team does, so mock-pay never saw the payment.
+  const signed = await mustBuy({ mail: email('signed'), items: [{ sku: D1000, qty: 1 }] });
+  const signedPay = await webhook(mkEvent('payment.succeeded', signed.order_id, signed.total_satang));
+  await waitStatus([signed.order_id], ['COMPLETED']);
+  const signedReplies = await Promise.all(Array.from({ length: 24 }, (_, i) => refund(session(i), signed.order_id, 5000)));
+  await waitFor('signed-webhook refunds to finish', async () => (await q(`SELECT count(*)::int n FROM refunds WHERE order_id='${signed.order_id}' AND status='PENDING'`))[0].n === 0, 90_000, 500);
+  await sleep(3000);
+  const signedRows = await q(`SELECT status, count(*)::int n, coalesce(sum(amount_satang),0)::bigint s FROM refunds WHERE order_id='${signed.order_id}' GROUP BY 1`);
+  const [signedOrder] = await statusOf([signed.order_id]);
+  const signedCsv = (await settlementRows()).rows.filter((r) => r.order_id === signed.order_id);
+  const signedProvider = {
+    paid: signedCsv.filter((r) => r.type === 'payment.succeeded').reduce((a, r) => a + r.amount_satang, 0),
+    refunded: signedCsv.filter((r) => r.type === 'payment.refunded').reduce((a, r) => a + r.amount_satang, 0),
+  };
+  const signedAccepted = signedReplies.filter((r) => r.status === 202).length;
+  const signedSettled = signedRows.find((r) => r.status === 'SUCCEEDED')?.s ?? 0;
+  check('s3/signed-webhook-refund', 3, 'order paid only by a self-signed webhook, 24 concurrent 5000 refunds on 34900: at most 6 accepted, all settled, DB equals mock-pay', signedPay.status === 200 && signedAccepted <= 6 && signedAccepted === 6 && !signedRows.some((r) => r.status === 'FAILED') && signedSettled === signedProvider.refunded && signedProvider.paid === T && signedProvider.refunded <= signedProvider.paid && signedOrder.status === 'COMPLETED', {
+    webhook: signedPay.status, replies: tally(signedReplies), rows: signedRows, order: signedOrder, provider: signedProvider,
+  });
 
   // payment.refunded replayed with the provider's own event ids.
   await sleep(3000);
