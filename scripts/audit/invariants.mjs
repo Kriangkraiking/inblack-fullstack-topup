@@ -5,6 +5,7 @@
 //
 //   node scripts/audit/invariants.mjs [--commit <sha>] [--only s1a,s3] [--keep]
 //   node scripts/audit/invariants.mjs --reuse <clone dir> --project <name> --only s4   (stack already up)
+//   node scripts/audit/invariants.mjs --reuse . --project inblack-e2e --work <tmp dir>   (working tree, used by scripts/ci)
 //
 // Exit code: 0 all invariants held, 1 at least one check failed, 2 the audit itself could not run.
 // The compose file fixes container names and host ports, so the project name separates volumes and
@@ -28,7 +29,8 @@ const PROJECT = opt('project', 'inblack-audit');
 const ONLY = opt('only', undefined)?.split(',');
 const KEEP = flag('keep');
 const FLASH_REQUESTS = Number(opt('flash-requests', 600));
-const WORK = REUSE ? path.dirname(REUSE) : fs.mkdtempSync(path.join(os.tmpdir(), 'inblack-audit-'));
+// --work: where audit.override.yml goes with --reuse (default: next to the reused dir).
+const WORK = opt('work', undefined) ?? (REUSE ? path.dirname(REUSE) : fs.mkdtempSync(path.join(os.tmpdir(), 'inblack-audit-')));
 const CLONE = REUSE ?? path.join(WORK, 'clone');
 const OVERRIDE = path.join(WORK, 'audit.override.yml');
 
