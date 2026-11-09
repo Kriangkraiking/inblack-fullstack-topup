@@ -46,9 +46,9 @@ The late-payment path in ADR 0004 re-acquires stock and vouchers, so it must fol
 
 ### Database role
 
-api and worker connect as `inblack_app`, which is not a superuser and owns nothing. Otherwise a bug or an injected statement could disable the triggers that these guarantees rely on. Only `migrate` and the test-only reset use the owner. Each new table needs its own GRANT, because the role gets no default privileges.
+api and worker connect as `inblack_app`, which is not a superuser and owns nothing. Otherwise a bug or an injected statement could disable the triggers that these guarantees rely on. Only `migrate` uses the owner. Each new table needs its own GRANT, because the role gets no default privileges.
 
 ## Consequences
 
 - Flash sale orders run one at a time through the product row. That is the point, and the lock is held for a few short statements.
-- `POST /api/v1/_test/reset` needs `TEST_ADMIN_DATABASE_URL` as well as `APP_ENV=test`.
+- `POST /api/v1/_test/reset` needs `APP_ENV=test` on both `migrate` and the API. `migrate` installs a `SECURITY DEFINER` function with a fixed `search_path`, grants it to `inblack_app`, and drops it whenever `APP_ENV` is anything else. The API container never holds the owner's password.

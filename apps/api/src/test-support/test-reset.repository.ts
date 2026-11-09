@@ -1,32 +1,22 @@
 import { Injectable } from '@nestjs/common';
-import pg from 'pg';
+import { ProblemError } from '../common/problem.js';
+import { DbService } from '../db/db.service.js';
 
-/**
- * Opens its own short-lived owner connection, because inblack_app cannot truncate or get
- * past the append-only triggers. schema_migrations and order_status_transitions stay,
- * since seeding does not restore them. A new table with data has to be added to this list.
- */
+/** undefined_function and insufficient_privilege: migrate did not run with APP_ENV=test. */
+const NOT_INSTALLED = new Set(['42883', '42501']);
+
 @Injectable()
 export class TestResetRepository {
-  async wipeAndSeed(connectionString: string, seedSql: string): Promise<void> {
-    const client = new pg.Client({ connectionString });
-    await client.connect();
+  constructor(private readonly db: DbService) {}
+
+  async wipeAndSeed(): Promise<void> {
     try {
-      await client.query('BEGIN');
-      await client.query('SET LOCAL session_replication_role = replica');
-      await client.query(
-        `TRUNCATE products, vouchers, admin_users, orders, order_items, order_events, refunds,
-           voucher_redemptions, idempotency_keys, webhook_events, fulfillment_attempts, outbox,
-           dead_letters
-         RESTART IDENTITY CASCADE`,
-      );
-      await client.query(seedSql);
-      await client.query('COMMIT');
+      await this.db.query('SELECT test_reset_database()');
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (NOT_INSTALLED.has((error as { code?: string }).code ?? '')) {
+        throw new ProblemError(503, 'TEST_RESET_NOT_CONFIGURED', 'run migrate with APP_ENV=test');
+      }
       throw error;
-    } finally {
-      await client.end();
     }
   }
 }

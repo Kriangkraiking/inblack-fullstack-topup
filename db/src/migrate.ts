@@ -102,6 +102,48 @@ async function setAppRolePassword(client: pg.Client): Promise<void> {
   await client.query('SELECT pg_temp.set_app_role_password($1)', [password]);
 }
 
+/**
+ * Everything except the two tables seeding cannot restore. The list is read at run time, so a
+ * new table cannot be forgotten. The owner is the only role that can get past the append-only
+ * triggers, which is why this runs as SECURITY DEFINER. search_path is fixed so that no caller
+ * can make it resolve a name to objects of their own. CREATE on public is revoked in 0004.
+ */
+function testResetFunctionSql(seedSql: string): string {
+  return `
+    CREATE OR REPLACE FUNCTION public.test_reset_database() RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+    AS $test_reset$
+    DECLARE
+      v_tables text;
+    BEGIN
+      SELECT string_agg(format('%I', tablename), ', ') INTO v_tables
+        FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename NOT IN ('schema_migrations', 'order_status_transitions');
+      PERFORM set_config('session_replication_role', 'replica', true);
+      EXECUTE 'TRUNCATE ' || v_tables || ' RESTART IDENTITY CASCADE';
+      PERFORM set_config('session_replication_role', 'origin', true);
+      ${seedSql}
+    END;
+    $test_reset$;
+    REVOKE ALL ON FUNCTION public.test_reset_database() FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.test_reset_database() TO inblack_app;`;
+}
+
+/**
+ * The database decides this, not only the API: outside APP_ENV=test the function does not
+ * exist, so a mistake in the API's own check still cannot wipe anything.
+ */
+async function syncTestReset(client: pg.Client, seedSql: string): Promise<void> {
+  const appEnv = process.env.APP_ENV;
+  if (appEnv === 'test') {
+    await inTransaction(client, testResetFunctionSql(seedSql));
+  } else {
+    await client.query('DROP FUNCTION IF EXISTS public.test_reset_database()');
+  }
+  log('test reset function synced', { installed: appEnv === 'test' });
+}
+
 async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required');
@@ -112,7 +154,9 @@ async function main(): Promise<void> {
     await runMigrations(client);
     await setAppRolePassword(client);
     // Seed inserts missing rows only, so live stock and voucher usage survive a restart.
-    await inTransaction(client, await readSql(SEED_FILE));
+    const seedSql = await readSql(SEED_FILE);
+    await inTransaction(client, seedSql);
+    await syncTestReset(client, seedSql);
     log('migrate and seed finished');
   } finally {
     await client.end();

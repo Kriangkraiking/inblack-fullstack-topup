@@ -29,9 +29,14 @@ class ProbeController {
   }
 }
 
+const resetRepository = { wipeAndSeed: vi.fn() };
+
 @Module({
   controllers: [ProbeController, TestResetController],
-  providers: [TestResetRepository, { provide: APP_FILTER, useClass: ProblemFilter }],
+  providers: [
+    { provide: TestResetRepository, useValue: resetRepository },
+    { provide: APP_FILTER, useClass: ProblemFilter },
+  ],
 })
 class ProbeModule {}
 
@@ -99,22 +104,23 @@ describe('HTTP contract', () => {
     'hides _test/reset as an unknown route when APP_ENV is "%s"',
     async (appEnv) => {
       vi.stubEnv('APP_ENV', appEnv);
-      vi.stubEnv('TEST_ADMIN_DATABASE_URL', 'postgresql://must-not-be-used');
+      resetRepository.wipeAndSeed.mockClear();
 
       const reset = await request(server()).post('/api/v1/_test/reset').expect(404);
       const unknown = await request(server()).post('/api/v1/_test/other').expect(404);
 
       expect(reset.text).toBe(unknown.text);
+      expect(resetRepository.wipeAndSeed).not.toHaveBeenCalled();
     },
   );
 
-  it('tells the operator when the reset connection is missing', async () => {
+  it('resets when APP_ENV is test', async () => {
     vi.stubEnv('APP_ENV', 'test');
-    vi.stubEnv('TEST_ADMIN_DATABASE_URL', '');
+    resetRepository.wipeAndSeed.mockClear();
 
-    const response = await request(server()).post('/api/v1/_test/reset').expect(503);
+    await request(server()).post('/api/v1/_test/reset').expect(200);
 
-    expect((JSON.parse(response.text) as { code: string }).code).toBe('TEST_RESET_NOT_CONFIGURED');
+    expect(resetRepository.wipeAndSeed).toHaveBeenCalledOnce();
   });
 });
 

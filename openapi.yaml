@@ -209,7 +209,7 @@ paths:
     post:
       summary: Wipe all data and seed again
       description: |
-        Only with `APP_ENV=test` and `TEST_ADMIN_DATABASE_URL` set. In any other `APP_ENV`
+        Only when `migrate` and the API both run with `APP_ENV=test`. In any other `APP_ENV`
         it answers exactly like a route that does not exist.
       operationId: resetForTests
       responses:
