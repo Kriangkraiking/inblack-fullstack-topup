@@ -35,9 +35,15 @@ x-api-env: &api-env
   NODE_ENV: production
   APP_ENV: ${APP_ENV:-development}
   PORT: 3000
-  DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+  # inblack_app: not a superuser and not a table owner, see db/migrations/0004_app_role.sql.
+  DATABASE_URL: ${DATABASE_URL:-postgresql://inblack_app:${APP_DB_PASSWORD:-change_this_local_app_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+  # Owner connection for POST /api/v1/_test/reset. Leave empty unless APP_ENV=test.
+  TEST_ADMIN_DATABASE_URL: ${TEST_ADMIN_DATABASE_URL:-}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
   MOCK_PAY_URL: ${MOCK_PAY_URL:-http://mock-pay:4010}
+  # Addresses the customer's browser opens, not addresses inside the compose network.
+  MOCK_PAY_PUBLIC_URL: ${MOCK_PAY_PUBLIC_URL:-http://localhost:4010}
+  WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3000}
   PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
   ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
 
@@ -76,7 +82,9 @@ services:
     env_file: *env-file
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+      # The table owner. api and worker use the restricted role instead.
+      DATABASE_URL: ${MIGRATE_DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-change_this_local_app_password}
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,10 +160,10 @@ services:
     environment:
       NODE_ENV: production
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://inblack_app:${APP_DB_PASSWORD:-change_this_local_app_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       MOCK_GAME_URL: ${MOCK_GAME_URL:-http://mock-game:4020}
-      ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
+      EXPIRY_SWEEP_INTERVAL_MS: ${EXPIRY_SWEEP_INTERVAL_MS:-5000}
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -87,6 +87,14 @@ async function runMigrations(client: pg.Client): Promise<void> {
   }
 }
 
+/** Runs on every start, so changing APP_DB_PASSWORD only needs a new `migrate` run. */
+async function setAppRolePassword(client: pg.Client): Promise<void> {
+  const password = process.env.APP_DB_PASSWORD;
+  if (!password) throw new Error('APP_DB_PASSWORD is required');
+  // ALTER ROLE cannot take a bound parameter, so the value is escaped instead.
+  await client.query(`ALTER ROLE inblack_app PASSWORD ${client.escapeLiteral(password)}`);
+}
+
 async function main(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error('DATABASE_URL is required');
@@ -95,6 +103,7 @@ async function main(): Promise<void> {
   try {
     await client.query('SELECT pg_advisory_lock($1)', [ADVISORY_LOCK_KEY]);
     await runMigrations(client);
+    await setAppRolePassword(client);
     // Seed inserts missing rows only, so live stock and voucher usage survive a restart.
     await inTransaction(client, await readSql(SEED_FILE));
     log('migrate and seed finished');
