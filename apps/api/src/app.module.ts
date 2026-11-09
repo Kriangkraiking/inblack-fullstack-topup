@@ -19,6 +19,8 @@ import { OrderOpsRepository } from './orders/order-ops.repository.js';
 import { OrdersController } from './orders/orders.controller.js';
 import { OrdersRepository } from './orders/orders.repository.js';
 import { OrdersService } from './orders/orders.service.js';
+import { ReconciliationController } from './reconciliation/reconciliation.controller.js';
+import { ReconciliationRepository } from './reconciliation/reconciliation.repository.js';
 import { AdminOrdersController } from './refunds/admin-orders.controller.js';
 import { RefundsService } from './refunds/refunds.service.js';
 import { TestResetController } from './test-support/test-reset.controller.js';
@@ -36,6 +38,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AuditLogsController,
     CatalogController,
     OrdersController,
+    ReconciliationController,
     TestResetController,
     WebhooksController,
   ],
@@ -51,6 +54,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     OrdersService,
     OrderAccessGuard,
     OutboxSignalService,
+    ReconciliationRepository,
     RefundsService,
     TestResetRepository,
     WebhooksRepository,
