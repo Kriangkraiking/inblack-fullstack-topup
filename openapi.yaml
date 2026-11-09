@@ -166,6 +166,11 @@ paths:
                 order_id: { $ref: '#/components/schemas/OrderId' }
                 email: { type: string, format: email }
       responses:
+        '400':
+          description: '`BAD_REQUEST` for a body that cannot be parsed'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '200':
           description: The order.
           content:
