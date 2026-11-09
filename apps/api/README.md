@@ -25,6 +25,27 @@
 
 [Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
+## Real-time, health, metrics and logs (InBlack)
+
+- `GET /api/v1/orders/{id}/events?token=` streams the order's `order_events` as SSE. The token is
+  `events_token` from `POST /api/v1/orders/track`. See `docs/adr/0003-realtime-across-replicas.md`
+  and `node scripts/audit/sse.mjs` (needs the compose stack running).
+- `GET /healthz` is liveness only. `GET /readyz` answers 503 problem+json (`NOT_READY`) when
+  Postgres or Redis fails a 1 second check.
+- `GET /metrics` is **per instance**: `http_request_duration_seconds` counts only the requests
+  that replica served, so scrape `api-1:3000` and `api-2:3000` separately and sum. The
+  `inblack_orders`, `inblack_queue_depth`, `inblack_fulfillment_retries`,
+  `inblack_outbox_job_retries` and `inblack_dead_letters` gauges come from Postgres (cached for
+  5 seconds) and are the same on both. Through the proxy on port 8080 `/metrics` is a 404; read it
+  inside the compose network, e.g.
+  `docker exec inblack-api-1 node -e "fetch('http://127.0.0.1:3000/metrics').then(r=>r.text()).then(console.log)"`.
+- Logs are one JSON object per line with `level`, `time`, `msg` and `request_id`. nginx sets
+  `X-Request-Id` when the client sends none; the webhook stores it in the outbox job, and the
+  worker logs the job and calls mock-game with it, so
+  `docker compose logs api-1 api-2 worker mock-game | grep <request_id>` follows one payment.
+  Emails are masked (`a***@example.com`); passwords, cookies, signatures, tokens and secrets are
+  never logged. URLs are logged as route templates, so the SSE token in the query never is.
+
 ## Project setup
 
 ```bash

@@ -6,8 +6,11 @@ info:
     All money is integer satang. Every error is RFC 9457 `application/problem+json`
     with a machine-readable `code`.
 
-    This file covers the endpoints built so far. Customer OTP, SSE, `GET /api/v1/admin/orders`,
-    `/readyz` and `/metrics` from spec 8.1 are not built yet.
+    This file covers the endpoints built so far. Customer OTP and `GET /api/v1/admin/orders`
+    from spec 8.1 are not built yet.
+
+    Every response carries `X-Request-Id` (the caller's, when it is 1-128 of `A-Za-z0-9._-`,
+    otherwise a new one) and `X-Instance` (the replica that answered).
 
     Admin routes need the `inblack_admin_session` cookie from `POST /api/v1/admin/auth/login`.
     Without it they answer 401 `UNAUTHENTICATED`, and with too low a role 403 `FORBIDDEN`. Roles
@@ -31,6 +34,46 @@ paths:
                 required: [status]
                 properties:
                   status: { type: string, const: ok }
+
+  /readyz:
+    get:
+      summary: Readiness. Checks Postgres and Redis, each with a 1 second deadline.
+      operationId: getReadiness
+      responses:
+        '200':
+          description: Both answered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, checks]
+                properties:
+                  status: { type: string, const: ready }
+                  checks:
+                    type: object
+                    properties:
+                      postgres: { type: string, enum: [ok, fail] }
+                      redis: { type: string, enum: [ok, fail] }
+        '503':
+          description: '`NOT_READY`; `detail` names the dependencies that failed, e.g. `unavailable: redis`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /metrics:
+    get:
+      summary: Prometheus metrics of the replica that answers
+      description: |
+        Served on each replica's port 3000 inside the compose network only. Through the proxy
+        (port 8080) it is a 404 `NOT_FOUND`. `http_request_duration_seconds` is per replica; the
+        `inblack_*` gauges are read from Postgres (cached 5 seconds) and are the same on every replica.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus text format 0.0.4.
+          content:
+            text/plain:
+              schema: { type: string }
 
   /api/v1/products:
     get:
@@ -176,10 +219,19 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '200':
-          description: The order.
+          description: The order, and a token that opens its event stream for one hour.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Order' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Order'
+                  - type: object
+                    required: [events_token, events_token_expires_at]
+                    properties:
+                      events_token:
+                        type: string
+                        description: Pass as `?token=` to `GET /api/v1/orders/{id}/events`. Bound to this order.
+                      events_token_expires_at: { type: string, format: date-time }
         '404':
           description: '`ORDER_NOT_FOUND`'
           content:
@@ -208,6 +260,70 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+
+  /api/v1/orders/{id}/events:
+    get:
+      summary: Server-Sent Events with the order's status changes
+      description: |
+        Each event is one `order_events` row; its id is the SSE `id`. On connect the stream sends
+        every event after `Last-Event-ID` (0 when absent), oldest first, then each new one as it is
+        committed, on whichever replica it happened. Reconnecting with the last id seen gives the
+        missed events once each, in order. A `: ping` comment comes every 15 seconds, and the
+        stream closes when the token expires.
+
+        A missing, wrong, expired or foreign token, an id with a bad checksum and an unknown order
+        all get the same 404, so the endpoint cannot be used to find orders.
+      operationId: streamOrderEvents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/OrderId' }
+        - name: token
+          in: query
+          required: true
+          description: '`events_token` from `POST /api/v1/orders/track`.'
+          schema: { type: string }
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: Sent by EventSource itself on reconnect. Wins over the query parameter.
+          schema: { type: string, pattern: '^[0-9]{1,18}$' }
+        - name: last_event_id
+          in: query
+          required: false
+          description: For a new EventSource that resumes after a page reload.
+          schema: { type: string, pattern: '^[0-9]{1,18}$' }
+      responses:
+        '200':
+          description: |
+            `text/event-stream`. Frames look like
+            `id: 42` / `data: {"event_id":"42","status":"PAID","from_status":"PENDING_PAYMENT","event_type":"status.changed","occurred_at":"..."}`.
+          content:
+            text/event-stream:
+              schema:
+                type: object
+                description: The JSON in each `data:` line.
+                required: [event_id, status, from_status, event_type, occurred_at]
+                properties:
+                  event_id: { type: string, pattern: '^[0-9]+$' }
+                  status: { type: string }
+                  from_status: { type: [string, 'null'] }
+                  event_type:
+                    type: string
+                    description: '`order.created`, `status.changed`, or `refund.settled` (a partial refund, status unchanged)'
+                  occurred_at: { type: string, format: date-time }
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`INVALID_LAST_EVENT_ID`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
 
   /api/v1/webhooks/payment:
     post:
