@@ -111,6 +111,7 @@ export class WebhooksService {
     const decision = decideLatePayment({ amountMatchesTotal: true, reacquired });
 
     if (decision === 'REINSTATE') {
+      await this.ops.markHoldsTaken(tx, order.id);
       await this.toQueue(tx, order.id, 'EXPIRED', 'late payment, stock and voucher re-acquired');
       return 'late_paid';
     }

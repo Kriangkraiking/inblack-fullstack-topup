@@ -76,6 +76,11 @@ export class OrderOpsRepository {
     await tx.query('SELECT release_order_holds($1)', [orderId]);
   }
 
+  /** A late payment took stock and voucher use again, so the next release must return them. */
+  async markHoldsTaken(tx: Tx, orderId: string): Promise<void> {
+    await tx.query('SELECT mark_order_holds_taken($1)', [orderId]);
+  }
+
   /** Returns false when the order already has an open job, which the partial index forbids. */
   async enqueueFulfillment(tx: Tx, orderId: string): Promise<boolean> {
     const { rowCount } = await tx.query(

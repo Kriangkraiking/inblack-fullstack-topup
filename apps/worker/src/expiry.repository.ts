@@ -43,52 +43,9 @@ export async function moveToExpired(
   return rows[0].changed;
 }
 
-export async function findItemsBySku(
-  client: pg.ClientBase,
-  orderId: string,
-): Promise<{ sku: string; qty: number }[]> {
-  const { rows } = await client.query<{ sku: string; qty: number }>(
-    'SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY sku',
-    [orderId],
-  );
-  return rows;
-}
-
-/** Unlimited products have NULL stock and are left alone. */
-export async function returnStock(
-  client: pg.ClientBase,
-  sku: string,
-  qty: number,
-): Promise<void> {
-  await client.query(
-    `UPDATE products SET stock = stock + $2, updated_at = now()
-     WHERE sku = $1 AND stock IS NOT NULL`,
-    [sku, qty],
-  );
-}
-
-/** Returns the voucher codes that were still held, so each one is given back once. */
-export async function releaseRedemptions(
-  client: pg.ClientBase,
-  orderId: string,
-): Promise<string[]> {
-  const { rows } = await client.query<{ voucher_code: string }>(
-    `UPDATE voucher_redemptions SET released_at = now()
-     WHERE order_id = $1 AND released_at IS NULL
-     RETURNING voucher_code`,
-    [orderId],
-  );
-  return rows.map((row) => row.voucher_code);
-}
-
-export async function returnVoucherUse(
-  client: pg.ClientBase,
-  code: string,
-): Promise<void> {
-  await client.query(
-    'UPDATE vouchers SET used_count = used_count - 1, updated_at = now() WHERE code = $1',
-    [code],
-  );
+/** Stock and voucher use, returned once: the function keeps a guard row per order. */
+export async function releaseHolds(client: pg.ClientBase, orderId: string): Promise<void> {
+  await client.query('SELECT release_order_holds($1)', [orderId]);
 }
 
 export async function deleteExpiredIdempotencyKeys(

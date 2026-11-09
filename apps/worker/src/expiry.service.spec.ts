@@ -17,8 +17,7 @@ function fakeClient(answers: [RegExp, Rows][]) {
   return { client: client as unknown as pg.ClientBase, ran };
 }
 
-const RESTORES_STOCK = /UPDATE products/;
-const RELEASES_VOUCHER = /UPDATE vouchers/;
+const RELEASES_HOLDS = /release_order_holds/;
 
 describe('expireOneOrder', () => {
   it('reports nothing to do when no order is due', async () => {
@@ -32,13 +31,11 @@ describe('expireOneOrder', () => {
     const { client, ran } = fakeClient([
       [/FOR UPDATE SKIP LOCKED/, [{ id: 'ORD-1' }]],
       [/transition_order/, [{ changed: true }]],
-      [/FROM order_items/, [{ sku: 'FLASH-SKIN-01', qty: 2 }]],
-      [/UPDATE voucher_redemptions/, [{ voucher_code: 'SAVE10' }]],
     ]);
 
     await expect(expireOneOrder(client)).resolves.toBe(true);
-    expect(ran(RESTORES_STOCK)).toHaveLength(1);
-    expect(ran(RELEASES_VOUCHER)).toHaveLength(1);
+    expect(ran(RELEASES_HOLDS)).toHaveLength(1);
+    expect(ran(/transition_order|release_order_holds/)[0]).toMatch(/transition_order/);
   });
 
   it('returns nothing when the order already moved', async () => {
@@ -48,19 +45,7 @@ describe('expireOneOrder', () => {
     ]);
 
     await expect(expireOneOrder(client)).resolves.toBe(true);
-    expect(ran(RESTORES_STOCK)).toHaveLength(0);
-    expect(ran(RELEASES_VOUCHER)).toHaveLength(0);
-  });
-
-  it('does not touch the voucher count when no redemption is open', async () => {
-    const { client, ran } = fakeClient([
-      [/FOR UPDATE SKIP LOCKED/, [{ id: 'ORD-1' }]],
-      [/transition_order/, [{ changed: true }]],
-      [/FROM order_items/, [{ sku: 'DIAMOND-1000', qty: 1 }]],
-    ]);
-
-    await expireOneOrder(client);
-    expect(ran(RELEASES_VOUCHER)).toHaveLength(0);
+    expect(ran(RELEASES_HOLDS)).toHaveLength(0);
   });
 
   it('rolls back when a step fails', async () => {

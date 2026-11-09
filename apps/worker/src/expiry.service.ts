@@ -8,13 +8,10 @@ import { assertTransition } from '@inblack/domain';
 import pg from 'pg';
 import {
   deleteExpiredIdempotencyKeys,
-  findItemsBySku,
   inTransaction,
   lockNextDueOrder,
   moveToExpired,
-  releaseRedemptions,
-  returnStock,
-  returnVoucherUse,
+  releaseHolds,
 } from './expiry.repository.js';
 
 const DEFAULT_SWEEP_INTERVAL_MS = 5000;
@@ -24,7 +21,8 @@ const POOL_SIZE = 5;
  * Expires one order in its own transaction, and returns false when nothing is due.
  *
  * Stock and voucher use go back only after the status change succeeded under the row
- * lock, so a second sweep finds a non-PENDING order and cannot return anything twice.
+ * lock, so a second sweep finds a non-PENDING order. release_order_holds also keeps its own
+ * guard row (migration 0007), so nothing is returned twice whoever calls it.
  * Lock order is order row, then products by SKU, then voucher, the same as order creation
  * for the rows they share. One order per transaction keeps that order true: a batch could
  * hold a voucher from its first order while waiting on a product for its second.
@@ -37,12 +35,7 @@ export function expireOneOrder(client: pg.ClientBase): Promise<boolean> {
     assertTransition('PENDING_PAYMENT', 'EXPIRED');
     if (!(await moveToExpired(client, orderId))) return true;
 
-    for (const item of await findItemsBySku(client, orderId)) {
-      await returnStock(client, item.sku, item.qty);
-    }
-    for (const code of await releaseRedemptions(client, orderId)) {
-      await returnVoucherUse(client, code);
-    }
+    await releaseHolds(client, orderId);
     return true;
   });
 }
