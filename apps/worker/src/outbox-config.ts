@@ -28,18 +28,18 @@ export interface OutboxConfig {
  * See ADR 0002 for how these numbers fit together.
  *
  * A job has at most 5 claims: GET and POST three times, then one last GET that decides. With the
- * defaults that takes about 3 x (10s POST + 10s settle + up to 4s backoff), so an order leaves
- * IN_PROGRESS well inside the 2 minutes of spec section 7.
+ * defaults that takes about 3 x (8s POST + 5s settle + up to 4s backoff), plus 25s of lease after a
+ * crash, so an order leaves IN_PROGRESS well inside the 2 minutes of spec section 7.
  */
 export function loadOutboxConfig(env: NodeJS.ProcessEnv = process.env): OutboxConfig {
   const config: OutboxConfig = {
     pollMs: positiveInt(env, 'OUTBOX_POLL_MS', 1000),
     sweepMs: positiveInt(env, 'RECOVERY_SWEEP_MS', 30_000),
     concurrency: positiveInt(env, 'OUTBOX_CONCURRENCY', 20),
-    leaseMs: positiveInt(env, 'OUTBOX_LEASE_MS', 35_000),
-    postTimeoutMs: positiveInt(env, 'FULFILLMENT_POST_TIMEOUT_MS', 10_000),
-    getTimeoutMs: positiveInt(env, 'FULFILLMENT_GET_TIMEOUT_MS', 10_000),
-    settleMs: positiveInt(env, 'FULFILLMENT_SETTLE_MS', 10_000),
+    leaseMs: positiveInt(env, 'OUTBOX_LEASE_MS', 25_000),
+    postTimeoutMs: positiveInt(env, 'FULFILLMENT_POST_TIMEOUT_MS', 8000),
+    getTimeoutMs: positiveInt(env, 'FULFILLMENT_GET_TIMEOUT_MS', 8000),
+    settleMs: positiveInt(env, 'FULFILLMENT_SETTLE_MS', 5000),
     maxAttempts: positiveInt(env, 'FULFILLMENT_MAX_ATTEMPTS', 5),
     maxPosts: positiveInt(env, 'FULFILLMENT_MAX_POSTS', 3),
     backoffBaseMs: positiveInt(env, 'FULFILLMENT_BACKOFF_BASE_MS', 1000),

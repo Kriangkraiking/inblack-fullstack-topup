@@ -58,11 +58,11 @@ The trap: the client times out while mock-game is still inside `LATENCY_MS`, bef
 
 In `apps/mock-game/server.js` the delay runs before routing for both methods, and the state is read after it. So a GET sent after a POST reads the state after that POST's commit, whatever the latency. Our reading of 404 is therefore correct with this mock. We do not want to depend on that alone, so:
 
-- After a timeout there is a settle wait before the next GET (`FULFILLMENT_SETTLE_MS`, 10 s). A POST that was already on its way has had POST timeout + settle = 20 s to land.
+- After a timeout there is a settle wait before the next GET (`FULFILLMENT_SETTLE_MS`, 5 s). A POST that was already on its way has had POST timeout + settle = 13 s to land, on top of the GET's own delay in this mock.
 - The GET has its own timeout. With `LATENCY_MS` above it the GET cannot answer, the state stays unknown, and no POST goes out. The order ends in NEEDS_REVIEW.
 - After a crash, an IN_FLIGHT attempt is only taken over when the lease has ended. The worker refuses to start unless the lease is longer than POST timeout + settle + GET timeout, so whoever sent that POST has timed out and it has had the settle time.
 
-Two runs tested this directly. A 5 s POST timeout against 9 s of `LATENCY_MS`: every POST timed out first and committed afterwards, the next GET found it, and all 12 orders completed with a count of 1. `LATENCY_MS` of 12 s, above the GET timeout: no POST went out at all, and all 4 orders went to NEEDS_REVIEW in about 105 s.
+Two runs tested this directly. A 3 s POST timeout against 6 s of `LATENCY_MS`: every POST timed out first and committed afterwards, the next GET found it, and all 12 orders completed with a count of 1. `LATENCY_MS` of 12 s, above the 8 s GET timeout: no POST went out at all, and all 4 orders went to NEEDS_REVIEW.
 
 ### When it stops
 
@@ -75,7 +75,7 @@ Five claims at most: up to three rounds of GET and POST, and a last claim that o
 | Some lines found, others confirmed not delivered | NEEDS_REVIEW and dead letter. A full refund would be wrong |
 | No line delivered, confirmed by GET | FAILED, dead letter and automatic refund, in one transaction |
 
-Defaults: 3 x (10 s POST + 10 s settle + up to 4 s backoff) is about 72 s, and after a crash up to 35 s of lease on top. So an order leaves IN_PROGRESS inside the 2 minutes of spec section 7 once the system is back.
+Defaults: 3 x (8 s POST + 5 s settle + up to 4 s backoff) is about 51 s, and after a crash up to 25 s of lease on top. So an order leaves IN_PROGRESS inside the 2 minutes of spec section 7 once the system is back. The first defaults (10 s, 10 s and a 35 s lease) reached 119 s by the raw clock in a run with two kills, too close to the limit. The cost of the shorter timeouts: with `LATENCY_MS` of 8 s or more, every order ends in NEEDS_REVIEW. That is safe, and the timeouts can be raised through env.
 
 ### What remains
 
@@ -93,6 +93,6 @@ A refund the provider refuses goes to FAILED, gives its amount back, and the ord
 
 ## Consequences
 
-- A hanging provider costs an order about 20 s per try, in exchange for not having to trust a timeout.
+- A hanging provider costs an order about 13 s per try, in exchange for not having to trust a timeout.
 - Under load, a refund reports PENDING first and settles later. The API answers 202.
 - `/stats` shows `<order_id>:<sku>`, not the order id alone.
