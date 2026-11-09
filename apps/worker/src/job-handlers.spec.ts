@@ -1,8 +1,14 @@
 import type pg from 'pg';
 import { backoffMs, loadOutboxConfig } from './outbox-config.js';
-import { referenceFor, runFulfillment, type HandlerDeps } from './job-handlers.js';
+import { referenceFor, runFulfillment, runRefund, type HandlerDeps } from './job-handlers.js';
 import type { Job } from './outbox.repository.js';
-import type { GameClient, PayClient, TopupLookup, TopupResult } from './provider-clients.js';
+import type {
+  GameClient,
+  PayClient,
+  RefundResult,
+  TopupLookup,
+  TopupResult,
+} from './provider-clients.js';
 
 const ORDER_ID = 'ORD-2587965432159-229';
 const REFERENCE = referenceFor(ORDER_ID, 'DIAMOND-1000');
@@ -144,6 +150,104 @@ describe('runFulfillment', () => {
 
     expect(postTopup).toHaveBeenCalledOnce();
     expect(postTopup.mock.calls[0][0].reference).toBe(referenceFor(ORDER_ID, 'MONTHLY-PASS'));
+  });
+});
+
+function refundPool(status: string, outcome = 'settled') {
+  const calls: { sql: string; params: unknown[] }[] = [];
+  const query = (sql: string, params: unknown[] = []) => {
+    calls.push({ sql, params });
+    if (sql.includes('FROM refunds r JOIN orders')) {
+      return Promise.resolve({
+        rows: [
+          {
+            id: '7',
+            refund_ref: 'rf_7',
+            order_id: ORDER_ID,
+            amount_satang: '5000',
+            status,
+            paid_satang: '34900',
+            payment_event_id: 'evt_signed_by_reviewer',
+          },
+        ],
+      });
+    }
+    if (sql.includes('settle_refund')) return Promise.resolve({ rows: [{ outcome }] });
+    return Promise.resolve({ rows: [], rowCount: 1 });
+  };
+  const pool = { query, connect: () => Promise.resolve({ query, release: () => undefined }) };
+  return { pool: pool as unknown as pg.Pool, calls };
+}
+
+function refundSetup(status: string, result: RefundResult, outcome?: string) {
+  const { pool, calls } = refundPool(status, outcome);
+  const postRefund = vi.fn<PayClient['postRefund']>(() => Promise.resolve(result));
+  const deps: HandlerDeps = {
+    pool,
+    game: {} as GameClient,
+    pay: { postRefund },
+    config: loadOutboxConfig({}),
+  };
+  const refundJob: Job = { ...job(), topic: 'refund.requested', payload: { refund_id: 7 } };
+  return { deps, postRefund, calls, refundJob };
+}
+
+describe('runRefund', () => {
+  it('sends its own refund_id with the paid amount and the paying event', async () => {
+    const { deps, postRefund, refundJob } = refundSetup('PENDING', { state: 'ok', eventId: 'evt_1' });
+
+    await runRefund(deps, refundJob);
+
+    expect(postRefund).toHaveBeenCalledWith({
+      refundRef: 'rf_7',
+      orderId: ORDER_ID,
+      amountSatang: 5000,
+      paidSatang: 34900,
+      paymentEventId: 'evt_signed_by_reviewer',
+    });
+  });
+
+  it('settles the provider event, preferring its own row', async () => {
+    const { deps, calls, refundJob } = refundSetup('PENDING', { state: 'ok', eventId: 'evt_1' });
+
+    await runRefund(deps, refundJob);
+
+    const settle = calls.find((call) => call.sql.includes('settle_refund'));
+    expect(settle?.params.slice(0, 4)).toEqual([ORDER_ID, '5000', 'evt_1', '7']);
+    expect(calls.some((call) => /UPDATE outbox SET processed_at/.test(call.sql))).toBe(true);
+  });
+
+  // A webhook can settle this row with the event of a same-amount row that was really sent.
+  // Closing here would leave the provider one refund short, the bug the audit found.
+  it('still sends a row a webhook already settled, so the provider gets one refund per row', async () => {
+    const { deps, postRefund, calls, refundJob } = refundSetup(
+      'SUCCEEDED',
+      { state: 'ok', eventId: 'evt_new' },
+    );
+
+    await runRefund(deps, refundJob);
+
+    expect(postRefund).toHaveBeenCalledOnce();
+    const settle = calls.find((call) => call.sql.includes('settle_refund'));
+    expect(settle?.params[2]).toBe('evt_new');
+  });
+
+  it('does not send a row the provider refused', async () => {
+    const { deps, postRefund, calls, refundJob } = refundSetup('FAILED', { state: 'ok', eventId: 'x' });
+
+    await runRefund(deps, refundJob);
+
+    expect(postRefund).not.toHaveBeenCalled();
+    expect(calls.some((call) => /UPDATE outbox SET processed_at/.test(call.sql))).toBe(true);
+  });
+
+  it('keeps the job open when the provider does not answer', async () => {
+    const { deps, calls, refundJob } = refundSetup('PENDING', { state: 'retry', reason: 'timeout' });
+
+    await runRefund(deps, refundJob);
+
+    expect(calls.some((call) => call.sql.includes('settle_refund'))).toBe(false);
+    expect(calls.some((call) => /UPDATE outbox\s+SET available_at/.test(call.sql))).toBe(true);
   });
 });
 

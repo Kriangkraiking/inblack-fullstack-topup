@@ -35,6 +35,10 @@ export interface RefundToSend {
   order_id: string;
   amount_satang: string;
   status: string;
+  /** What the order was paid, sent along so the provider can refund a payment it never saw. */
+  paid_satang: string;
+  /** The webhook event that recorded that payment, if one did. */
+  payment_event_id: string | null;
 }
 
 export class FencedError extends Error {
@@ -301,7 +305,15 @@ async function enqueueRefund(client: pg.ClientBase, orderId: string, refundId: s
 
 export async function loadRefund(pool: pg.Pool, refundId: string): Promise<RefundToSend | undefined> {
   const { rows } = await pool.query<RefundToSend>(
-    'SELECT id, refund_ref, order_id, amount_satang, status FROM refunds WHERE id = $1',
+    `SELECT r.id, r.refund_ref, r.order_id, r.amount_satang, r.status, o.paid_satang,
+            (SELECT e.event_id FROM webhook_events e
+             WHERE e.order_id = r.order_id AND e.type = 'payment.succeeded'
+               AND e.amount_satang = o.paid_satang
+               AND e.outcome IS DISTINCT FROM 'duplicate_payment'
+               AND e.outcome IS DISTINCT FROM 'unknown_order'
+             ORDER BY e.received_at, e.event_id LIMIT 1) AS payment_event_id
+     FROM refunds r JOIN orders o ON o.id = r.order_id
+     WHERE r.id = $1`,
     [refundId],
   );
   return rows[0];

@@ -16,6 +16,14 @@ export type RefundResult =
   | { state: 'rejected'; httpStatus: number; code: string }
   | { state: 'retry'; reason: string };
 
+export interface RefundRequest {
+  refundRef: string;
+  orderId: string;
+  amountSatang: number;
+  paidSatang: number;
+  paymentEventId: string | null;
+}
+
 export interface TopupRequest {
   reference: string;
   game_uid: string;
@@ -81,13 +89,23 @@ export type GameClient = ReturnType<typeof createGameClient>;
 
 export function createPayClient(baseUrl: string, timeoutMs: number) {
   return {
-    /** refund_id is the idempotency key at the provider, so sending it twice is always safe. */
-    async postRefund(refundRef: string, orderId: string, amount: number): Promise<RefundResult> {
+    /**
+     * refund_id is the idempotency key at the provider, so sending it twice is always safe.
+     * paid_satang and payment_event_id let mock-pay refund an order that was paid by a webhook it
+     * did not send itself (the review team signs its own): it records that payment first.
+     */
+    async postRefund(request: RefundRequest): Promise<RefundResult> {
       try {
         const response = await fetch(`${baseUrl}/refunds`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refund_id: refundRef, order_id: orderId, amount_satang: amount }),
+          body: JSON.stringify({
+            refund_id: request.refundRef,
+            order_id: request.orderId,
+            amount_satang: request.amountSatang,
+            paid_satang: request.paidSatang,
+            ...(request.paymentEventId ? { payment_event_id: request.paymentEventId } : {}),
+          }),
           redirect: 'manual',
           signal: AbortSignal.timeout(timeoutMs),
         });

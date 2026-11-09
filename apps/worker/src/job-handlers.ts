@@ -128,20 +128,32 @@ export async function runFulfillment(deps: HandlerDeps, job: Job): Promise<void>
   }
 }
 
-/** The refund row was committed before this job existed, so a crash here only causes a resend. */
+/**
+ * The refund row was committed before this job existed, so a crash here only causes a resend.
+ *
+ * Every row that is not FAILED sends its own refund_id, even a row a webhook already settled.
+ * A payment.refunded webhook names no refund, so it settles some PENDING row of the same amount,
+ * which may be a row that was never sent (ADR 0002). Closing that row's job without sending
+ * would leave the provider one refund short and the row actually sent PENDING forever. Sending
+ * is safe because refund_id is idempotent at the provider: a row already there gets its own
+ * event back, which is already_settled. A row that was not there creates exactly the refund
+ * the database already counts, and its event settles the same-amount row still PENDING.
+ */
 export async function runRefund(deps: HandlerDeps, job: Job): Promise<void> {
   const { pool, pay, config } = deps;
   const refund = await loadRefund(pool, String(job.payload.refund_id));
-  if (!refund || refund.status !== 'PENDING') {
-    await closeOnly(pool, job, 'refund is not pending');
+  if (!refund || refund.status === 'FAILED') {
+    await closeOnly(pool, job, refund ? 'refund failed' : 'refund not found');
     return;
   }
 
-  const result = await pay.postRefund(
-    refund.refund_ref,
-    refund.order_id,
-    toSatang(refund.amount_satang),
-  );
+  const result = await pay.postRefund({
+    refundRef: refund.refund_ref,
+    orderId: refund.order_id,
+    amountSatang: toSatang(refund.amount_satang),
+    paidSatang: toSatang(refund.paid_satang),
+    paymentEventId: refund.payment_event_id,
+  });
   if (result.state === 'ok') {
     const outcome = await settleRefund(pool, job, refund, result.eventId);
     if (outcome === 'unmatched') logger.error(`refund ${refund.id} had no pending row to settle`);
