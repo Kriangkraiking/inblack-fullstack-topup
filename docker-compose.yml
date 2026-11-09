@@ -131,7 +131,8 @@ services:
   # Reverse proxy (Nginx round-robin)
   # -------------------------
   proxy:
-    image: nginx:1.27-alpine
+    # 1.27.3 or later: the upstream `resolve` parameter in nginx.conf needs it.
+    image: nginx:1.27.5-alpine
     container_name: inblack-proxy
     restart: unless-stopped
     ports:
