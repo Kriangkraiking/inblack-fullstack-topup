@@ -1,6 +1,8 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { readTokenCookie } from '../common/cookies.js';
 import { ProblemError } from '../common/problem.js';
+import { ADMIN_SESSION_COOKIE } from '../security/csrf.guard.js';
 import { AdminAuthService } from './admin-auth.service.js';
 import {
   hasRole,
@@ -10,18 +12,10 @@ import {
   type AdminRole,
 } from './admin-roles.js';
 
-export const SESSION_COOKIE = 'inblack_admin_session';
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+export const SESSION_COOKIE = ADMIN_SESSION_COOKIE;
 
 export function readSessionToken(cookieHeader: string | undefined): string | undefined {
-  for (const part of (cookieHeader ?? '').split(';')) {
-    const separator = part.indexOf('=');
-    if (separator !== -1 && part.slice(0, separator).trim() === SESSION_COOKIE) {
-      const value = part.slice(separator + 1).trim();
-      return TOKEN_PATTERN.test(value) ? value : undefined;
-    }
-  }
-  return undefined;
+  return readTokenCookie(cookieHeader, SESSION_COOKIE);
 }
 
 /**

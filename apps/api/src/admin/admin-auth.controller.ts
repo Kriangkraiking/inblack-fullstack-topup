@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, HttpCode, Post, Res } from '@nestjs/com
 import { normalizeEmail } from '@inblack/domain';
 import type { Response } from 'express';
 import { z } from 'zod';
+import { sessionCookieOptions } from '../common/cookies.js';
 import { parseWith } from '../common/validate.js';
 import { readSessionToken, SESSION_COOKIE } from './admin-auth.guard.js';
 import { AdminAuthService } from './admin-auth.service.js';
@@ -12,16 +13,6 @@ const loginSchema = z.object({
   // scrypt takes any length, so this bounds how much work one request can ask for.
   password: z.string().min(1).max(256),
 });
-
-function cookieOptions() {
-  return {
-    httpOnly: true,
-    sameSite: 'strict' as const,
-    // Off by default because compose serves plain http on localhost. Turn on behind TLS.
-    secure: process.env.COOKIE_SECURE === 'true',
-    path: '/',
-  };
-}
 
 const renderAdmin = (admin: Admin) => ({ email: admin.email, role: admin.role });
 
@@ -36,7 +27,7 @@ export class AdminAuthController {
     const input = parseWith(loginSchema, body);
     const { admin, token } = await this.auth.login(input.email, input.password);
     response.cookie(SESSION_COOKIE, token, {
-      ...cookieOptions(),
+      ...sessionCookieOptions(),
       maxAge: this.auth.ttlSeconds * 1000,
     });
     return renderAdmin(admin);
@@ -51,7 +42,7 @@ export class AdminAuthController {
   ) {
     const token = readSessionToken(cookie);
     if (token) await this.auth.logout(token);
-    response.clearCookie(SESSION_COOKIE, cookieOptions());
+    response.clearCookie(SESSION_COOKIE, sessionCookieOptions());
   }
 
   @Get('me')

@@ -10,6 +10,8 @@ export class ProblemError extends Error {
     readonly status: number,
     readonly code: string,
     detail: string,
+    /** Sent with the answer, such as Retry-After on a 429. Never part of a stored body. */
+    readonly headers: Readonly<Record<string, string>> = {},
   ) {
     super(detail);
     this.name = 'ProblemError';

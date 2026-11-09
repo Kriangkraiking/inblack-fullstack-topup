@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
 import type { Response } from 'express';
-import { PROBLEM_CONTENT_TYPE, renderProblem, toProblem } from './problem.js';
+import { PROBLEM_CONTENT_TYPE, ProblemError, renderProblem, toProblem } from './problem.js';
 
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
@@ -12,6 +12,9 @@ export class ProblemFilter implements ExceptionFilter {
       this.logger.error(exception instanceof Error ? exception.message : String(exception));
     }
     const response = host.switchToHttp().getResponse<Response>();
+    if (exception instanceof ProblemError) {
+      for (const [name, value] of Object.entries(exception.headers)) response.setHeader(name, value);
+    }
     response
       .status(problem.status)
       .type(PROBLEM_CONTENT_TYPE)
