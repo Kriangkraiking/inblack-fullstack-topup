@@ -1,0 +1,31 @@
+{
+  "name": "@inblack/db",
+  "version": "0.0.1",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "files": [
+    "dist",
+    "migrations",
+    "seed"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src/",
+    "test": "vitest run",
+    "migrate": "node dist/migrate.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@inblack/domain": "workspace:*",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.0",
+    "oxlint": "^1.58.0",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0",
+    "vitest": "^4.1.2"
+  }
+}
