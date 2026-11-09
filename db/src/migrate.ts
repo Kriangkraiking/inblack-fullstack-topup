@@ -91,8 +91,15 @@ async function runMigrations(client: pg.Client): Promise<void> {
 async function setAppRolePassword(client: pg.Client): Promise<void> {
   const password = process.env.APP_DB_PASSWORD;
   if (!password) throw new Error('APP_DB_PASSWORD is required');
-  // ALTER ROLE cannot take a bound parameter, so the value is escaped instead.
-  await client.query(`ALTER ROLE inblack_app PASSWORD ${client.escapeLiteral(password)}`);
+  // ALTER ROLE cannot take a bound parameter, but a function call can, and %L quotes it there.
+  await client.query(`
+    CREATE FUNCTION pg_temp.set_app_role_password(p_password text) RETURNS void
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      EXECUTE format('ALTER ROLE inblack_app PASSWORD %L', p_password);
+    END;
+    $$`);
+  await client.query('SELECT pg_temp.set_app_role_password($1)', [password]);
 }
 
 async function main(): Promise<void> {
