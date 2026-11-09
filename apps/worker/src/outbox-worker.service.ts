@@ -15,6 +15,7 @@ import {
   requeueOrphans,
   type Job,
 } from './outbox.repository.js';
+import { runWithRequestId } from './observability/request-context.js';
 import { createGameClient, createPayClient } from './provider-clients.js';
 
 const OUTBOX_CHANNEL = 'inblack:outbox';
@@ -98,7 +99,14 @@ export class OutboxWorkerService implements OnApplicationBootstrap, OnApplicatio
   }
 
   /** A failure here leaves the lease to run out, and the job is then claimed again. */
-  private async run(job: Job): Promise<void> {
+  private run(job: Job): Promise<void> {
+    // Logs and calls to mock-game carry the id of the request that queued the job (the webhook).
+    const requestId = typeof job.payload.request_id === 'string' ? job.payload.request_id : `job-${job.id}`;
+    return runWithRequestId(requestId, () => this.runInContext(job));
+  }
+
+  private async runInContext(job: Job): Promise<void> {
+    this.logger.log({ msg: 'job claimed', job_id: job.id, topic: job.topic, order_id: job.aggregateId, attempt: job.attempts });
     try {
       if (job.topic === FULFILLMENT_TOPIC) await runFulfillment(this.deps, job);
       else await runRefund(this.deps, job);

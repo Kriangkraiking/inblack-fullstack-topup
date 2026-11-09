@@ -15,7 +15,7 @@ export interface Job {
   id: string;
   topic: string;
   aggregateId: string;
-  payload: { refund_id?: number | string };
+  payload: { refund_id?: number | string; request_id?: string };
   attempts: number;
   createdAt: Date;
 }

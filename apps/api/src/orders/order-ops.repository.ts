@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { OrderStatus } from '@inblack/domain';
 import type { Tx } from '../db/db.service.js';
+import { currentRequestId } from '../observability/request-context.js';
 
 /** SQL that changes an order after it was created: status, money, outbox, refunds. */
 
@@ -84,11 +85,13 @@ export class OrderOpsRepository {
   /** Returns false when the order already has an open job, which the partial index forbids. */
   async enqueueFulfillment(tx: Tx, orderId: string): Promise<boolean> {
     const { rowCount } = await tx.query(
-      `INSERT INTO outbox (topic, aggregate_id) VALUES ($1, $2)
+      // request_id only lets the worker log under the webhook's id; no decision reads it.
+      `INSERT INTO outbox (topic, aggregate_id, payload)
+       VALUES ($1, $2, jsonb_strip_nulls(jsonb_build_object('request_id', $3::text)))
        ON CONFLICT (aggregate_id)
          WHERE topic = 'fulfillment.requested' AND processed_at IS NULL
        DO NOTHING`,
-      [FULFILLMENT_TOPIC, orderId],
+      [FULFILLMENT_TOPIC, orderId, currentRequestId() ?? null],
     );
     return rowCount === 1;
   }
@@ -110,8 +113,8 @@ export class OrderOpsRepository {
     );
     await tx.query(
       `INSERT INTO outbox (topic, aggregate_id, payload)
-       VALUES ($1, $2, jsonb_build_object('refund_id', $3::bigint))`,
-      [REFUND_TOPIC, orderId, rows[0].id],
+       VALUES ($1, $2, jsonb_strip_nulls(jsonb_build_object('refund_id', $3::bigint, 'request_id', $4::text)))`,
+      [REFUND_TOPIC, orderId, rows[0].id, currentRequestId() ?? null],
     );
     return rows[0];
   }

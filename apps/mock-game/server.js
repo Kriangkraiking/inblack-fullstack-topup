@@ -192,6 +192,14 @@ function start(config) {
   };
 
   const server = http.createServer((req, res) => {
+    // One JSON line per call, with the worker's X-Request-Id so a top-up can be traced to its webhook.
+    const started = Date.now();
+    res.on("finish", () => {
+      const pathname = req.url.split("?")[0];
+      if (pathname === "/healthz") return;
+      const requestId = /^[A-Za-z0-9._-]{1,128}$/.test(req.headers["x-request-id"] ?? "") ? req.headers["x-request-id"] : undefined;
+      process.stdout.write(`${JSON.stringify({ level: "info", time: new Date().toISOString(), service: "mock-game", msg: "request", request_id: requestId, method: req.method, path: pathname, status: res.statusCode, duration_ms: Date.now() - started })}\n`);
+    });
     route(req, res).catch((err) => {
       if (err.tooLarge) return problem(res, 413, "BODY_TOO_LARGE", `limit is ${MAX_BODY_BYTES} bytes`);
       console.error(err);

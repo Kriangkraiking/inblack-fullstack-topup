@@ -1,5 +1,15 @@
 /** HTTP calls to mock-game and mock-pay. Every timeout or transport error is "unknown". */
 
+import { Logger } from '@nestjs/common';
+import { acceptRequestId, currentRequestId } from './observability/request-context.js';
+
+const logger = new Logger('ProviderClients');
+
+/** The id of the request that queued the job, so mock-game logs line up with ours. */
+function traceHeaders(): Record<string, string> {
+  return { 'X-Request-Id': acceptRequestId(currentRequestId()) };
+}
+
 export type TopupLookup =
   | { state: 'found'; count: number }
   | { state: 'not_found' }
@@ -41,6 +51,7 @@ export function createGameClient(baseUrl: string, getTimeoutMs: number, postTime
     async getTopup(reference: string): Promise<TopupLookup> {
       try {
         const response = await fetch(`${baseUrl}/topups/${encodeURIComponent(reference)}`, {
+          headers: traceHeaders(),
           redirect: 'manual',
           signal: AbortSignal.timeout(getTimeoutMs),
         });
@@ -66,12 +77,13 @@ export function createGameClient(baseUrl: string, getTimeoutMs: number, postTime
       try {
         const response = await fetch(`${baseUrl}/topups`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...traceHeaders() },
           body: JSON.stringify(request),
           redirect: 'manual',
           signal: AbortSignal.timeout(postTimeoutMs),
         });
         await response.arrayBuffer();
+        logger.log({ msg: 'mock-game POST /topups', reference: request.reference, sku: request.sku, http_status: response.status });
         if (response.ok) return { state: 'ok', httpStatus: response.status };
         if (response.status >= 400 && response.status < 500) {
           return { state: 'rejected', httpStatus: response.status };
@@ -79,6 +91,7 @@ export function createGameClient(baseUrl: string, getTimeoutMs: number, postTime
         if (response.status >= 500) return { state: 'failed', httpStatus: response.status };
         return { state: 'unknown', reason: `POST answered ${response.status}` };
       } catch (error) {
+        logger.warn({ msg: 'mock-game POST /topups gave no answer', reference: request.reference, error: reasonOf(error) });
         return { state: 'unknown', reason: `POST ${reasonOf(error)}` };
       }
     },
@@ -98,7 +111,7 @@ export function createPayClient(baseUrl: string, timeoutMs: number) {
       try {
         const response = await fetch(`${baseUrl}/refunds`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...traceHeaders() },
           body: JSON.stringify({
             refund_id: request.refundRef,
             order_id: request.orderId,
