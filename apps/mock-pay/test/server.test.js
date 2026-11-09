@@ -230,7 +230,9 @@ test("mismatch sends the different amount, and refunds are capped by what was ch
 
   await pay(base, "amount_mismatch", "ORD-small", "50");
   await waitFor(() => calls.length === 3);
-  assert.equal(bodyOf(calls[2]).amount_satang, 150);
+  // The refund's webhook and this payment's are delivered side by side, in either order.
+  const small = calls.map(bodyOf).find((body) => body.order_id === "ORD-small");
+  assert.equal(small.amount_satang, 150);
 });
 
 test("a second payment click does not charge or settle again", async () => {
@@ -492,4 +494,63 @@ test("restart: a torn journal tail is dropped and later appends stay readable", 
 
   const third = await startPay({ WEBHOOK_URL: url }, first.dataDir);
   assert.equal((await settlementRows(third.base)).length, 2);
+});
+
+test("refund: a payment it never saw is recorded from paid_satang, settled once and capped", async () => {
+  const { url, calls } = await startReceiver();
+  const { base, child, dataDir } = await startPay({ WEBHOOK_URL: url });
+  const paid = { order_id: "ORD-signed", paid_satang: 34900, payment_event_id: "evt_signed_elsewhere" };
+  const results = await Promise.all(
+    Array.from({ length: 24 }, (_, i) => refund(base, { refund_id: `r${i}`, amount_satang: 5000, ...paid })),
+  );
+  assert.equal(results.filter((res) => res.status === 201).length, 6);
+  assert.equal(results.filter((res) => res.status === 409).length, 18);
+
+  const rows = await settlementRows(base);
+  const succeeded = rows.filter((row) => row[2] === "payment.succeeded");
+  assert.deepEqual(succeeded.map((row) => [row[0], row[1], row[3]]), [["evt_signed_elsewhere", "ORD-signed", "34900"]]);
+  assert.equal(rows.filter((row) => row[2] === "payment.refunded").length, 6);
+  // Only the refunds are delivered: the merchant already has the payment.
+  await waitFor(() => calls.length === 6);
+  await sleep(100);
+  assert.ok(calls.every((call) => bodyOf(call).type === "payment.refunded"));
+
+  // A later paid_satang does not change a payment it already knows, and it survives a restart.
+  const bigger = await refund(base, { refund_id: "r-more", amount_satang: 5000, ...paid, paid_satang: 999999 });
+  assert.equal(bigger.status, 409);
+  await sigkill(child);
+  const again = await startPay({ WEBHOOK_URL: url }, dataDir);
+  assert.deepEqual(await settlementRows(again.base), rows);
+});
+
+test("refund: without paid_satang an unknown payment is still not found, and bad values are refused", async () => {
+  const { url } = await startReceiver();
+  const { base } = await startPay({ WEBHOOK_URL: url });
+  const missing = await refund(base, { refund_id: "r1", order_id: "ORD-x", amount_satang: 1 });
+  assert.equal((await missing.json()).code, "PAYMENT_NOT_FOUND");
+  for (const extra of [{ paid_satang: 0 }, { paid_satang: 1.5 }, { paid_satang: "100" }, { paid_satang: 100, payment_event_id: "bad id" }]) {
+    assert.equal((await refund(base, { refund_id: "r2", order_id: "ORD-x", amount_satang: 1, ...extra })).status, 400, JSON.stringify(extra));
+  }
+  assert.equal((await settlementRows(base)).length, 0);
+});
+
+test("test reset: off by default, and under APP_ENV=test it empties state, journal and the CSV", async () => {
+  const { url } = await startReceiver();
+  const off = await startPay({ WEBHOOK_URL: url });
+  assert.equal((await fetch(`${off.base}/_test/reset`, { method: "POST" })).status, 404);
+  const notTest = await startPay({ WEBHOOK_URL: url, APP_ENV: "development" });
+  assert.equal((await fetch(`${notTest.base}/_test/reset`, { method: "POST" })).status, 404);
+
+  const { base, child, dataDir } = await startPay({ WEBHOOK_URL: url, APP_ENV: "test" });
+  await pay(base, "success", "ORD-1", "1000");
+  assert.equal((await settlementRows(base)).length, 1);
+  assert.equal((await fetch(`${base}/_test/reset`, { method: "GET" })).status, 404);
+  assert.equal((await fetch(`${base}/_test/reset`, { method: "POST" })).status, 200);
+  assert.equal((await settlementRows(base)).length, 0);
+  assert.equal((await refund(base, { refund_id: "r1", order_id: "ORD-1", amount_satang: 1 })).status, 404);
+  await sigkill(child);
+  const again = await startPay({ WEBHOOK_URL: url, APP_ENV: "test" }, dataDir);
+  assert.equal((await settlementRows(again.base)).length, 0);
+  await pay(again.base, "success", "ORD-2", "1000");
+  assert.equal((await settlementRows(again.base)).length, 1);
 });

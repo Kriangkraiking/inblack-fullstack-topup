@@ -44,6 +44,8 @@ function loadConfig(env) {
     timeoutMs: positiveInt("WEBHOOK_TIMEOUT_MS", env.WEBHOOK_TIMEOUT_MS, 10000),
     tickMs: positiveInt("WEBHOOK_TICK_MS", env.WEBHOOK_TICK_MS, 250),
     slowDelayMs: positiveInt("SLOW_WEBHOOK_DELAY_MS", env.SLOW_WEBHOOK_DELAY_MS, 60000),
+    // POST /_test/reset exists only when this is exactly "test". Off by default.
+    testReset: env.APP_ENV === "test",
   };
 }
 
@@ -63,7 +65,8 @@ function newEventId(now) {
   return `evt_${time}${random}`;
 }
 
-// Replays the journal into `apply` and returns an fsyncing append function.
+// Replays the journal into `apply` and returns an fsyncing append function, and a
+// truncate function for the test reset.
 // A last line without a newline is a write that was never acknowledged, so it
 // is cut off; otherwise the next append would be glued onto it.
 function openJournal(filePath, apply) {
@@ -78,7 +81,7 @@ function openJournal(filePath, apply) {
   for (const line of content.subarray(0, end).toString("utf8").split("\n")) {
     if (line) apply(JSON.parse(line));
   }
-  return (record) => {
+  const append = (record) => {
     try {
       fs.writeFileSync(fd, `${JSON.stringify(record)}\n`);
       fs.fsyncSync(fd);
@@ -88,6 +91,11 @@ function openJournal(filePath, apply) {
       process.exit(1);
     }
   };
+  const truncate = () => {
+    fs.ftruncateSync(fd, 0);
+    fs.fsyncSync(fd);
+  };
+  return { append, truncate };
 }
 
 function createState() {
@@ -97,7 +105,26 @@ function createState() {
     settlements: [], // Money movements, kept even if their webhook never arrives.
     deliveries: new Map(), // Only pending deliveries: id -> { body, attempts, next_attempt_at }
   };
+  state.clear = () => {
+    state.payments.clear();
+    state.refunds.clear();
+    state.settlements.length = 0;
+    state.deliveries.clear();
+  };
   state.apply = (record) => {
+    // A payment this provider learns of from a refund request: the merchant was paid by a
+    // webhook signed elsewhere (the review team signs its own). Settled, never delivered.
+    if (record.k === "payment") {
+      state.payments.set(record.order_id, { paid: record.amount_satang, refunded: 0 });
+      state.settlements.push({
+        event_id: record.event_id,
+        type: "payment.succeeded",
+        order_id: record.order_id,
+        amount_satang: record.amount_satang,
+        occurred_at: record.occurred_at,
+      });
+      return;
+    }
     if (record.k === "attempt") {
       const delivery = state.deliveries.get(record.id);
       if (record.status !== "pending") state.deliveries.delete(record.id);
@@ -274,7 +301,8 @@ function parseCheckoutParams(params) {
 
 function start(config) {
   const state = createState();
-  const append = openJournal(path.join(config.dataDir, "mock-pay.jsonl"), state.apply);
+  const journal = openJournal(path.join(config.dataDir, "mock-pay.jsonl"), state.apply);
+  const append = journal.append;
   const commit = (record) => {
     append(record);
     state.apply(record);
@@ -356,7 +384,13 @@ function start(config) {
     } catch {
       return problem(res, 400, "INVALID_JSON", "body is not valid JSON");
     }
-    const { refund_id: refundId, order_id: orderId, amount_satang: amount } = body ?? {};
+    const {
+      refund_id: refundId,
+      order_id: orderId,
+      amount_satang: amount,
+      paid_satang: paidSatang,
+      payment_event_id: paymentEventId,
+    } = body ?? {};
     if (typeof refundId !== "string" || !ID_PATTERN.test(refundId)) {
       return problem(res, 400, "INVALID_REFUND", "refund_id must match [A-Za-z0-9_.:-]{1,128}");
     }
@@ -366,6 +400,12 @@ function start(config) {
     if (!Number.isSafeInteger(amount) || amount < 1) {
       return problem(res, 400, "INVALID_REFUND", "amount_satang must be a positive integer");
     }
+    if (paidSatang !== undefined && (!Number.isSafeInteger(paidSatang) || paidSatang < 1)) {
+      return problem(res, 400, "INVALID_REFUND", "paid_satang must be a positive integer");
+    }
+    if (paymentEventId !== undefined && (typeof paymentEventId !== "string" || !ID_PATTERN.test(paymentEventId))) {
+      return problem(res, 400, "INVALID_REFUND", "payment_event_id must match [A-Za-z0-9_.:-]{1,128}");
+    }
 
     const existing = state.refunds.get(refundId);
     if (existing) {
@@ -374,8 +414,21 @@ function start(config) {
       }
       return sendJson(res, 200, refundResponse(refundId, existing));
     }
+    if (!state.payments.has(orderId)) {
+      if (paidSatang === undefined) return problem(res, 404, "PAYMENT_NOT_FOUND", "no successful payment for this order");
+      // Paid by a webhook this provider did not send. Record that payment at the amount the
+      // merchant says it received, so the balance check below and the settlement file cover it.
+      // paid_satang never changes a payment this provider already knows.
+      const now = Date.now();
+      commit({
+        k: "payment",
+        event_id: paymentEventId ?? newEventId(now),
+        order_id: orderId,
+        amount_satang: paidSatang,
+        occurred_at: new Date(now).toISOString().replace(/\.\d{3}Z$/, "Z"),
+      });
+    }
     const payment = state.payments.get(orderId);
-    if (!payment) return problem(res, 404, "PAYMENT_NOT_FOUND", "no successful payment for this order");
     const remaining = payment.paid - payment.refunded;
     if (amount > remaining) {
       return problem(res, 409, "REFUND_EXCEEDS_PAID", "amount is more than the refundable balance", {
@@ -394,8 +447,16 @@ function start(config) {
     res.end(`${["event_id,order_id,type,amount_satang,settled_at", ...rows].join("\n")}\n`);
   };
 
+  // Empties the journal and all state, pending webhooks included. Test environments only.
+  const handleTestReset = (res) => {
+    journal.truncate();
+    state.clear();
+    return sendJson(res, 200, { status: "reset" });
+  };
+
   const route = async (req, res) => {
     const url = new URL(req.url, "http://mock-pay");
+    if (url.pathname === "/_test/reset" && req.method === "POST" && config.testReset) return handleTestReset(res);
     if (url.pathname === "/healthz") return sendJson(res, 200, { status: "ok", service: "mock-pay" });
     if (url.pathname === "/checkout" && req.method === "GET") {
       const parsed = parseCheckoutParams(url.searchParams);
