@@ -6,6 +6,16 @@ import {
 } from '@nestjs/common';
 import { assertTransition } from '@inblack/domain';
 import pg from 'pg';
+import {
+  deleteExpiredIdempotencyKeys,
+  findItemsBySku,
+  inTransaction,
+  lockNextDueOrder,
+  moveToExpired,
+  releaseRedemptions,
+  returnStock,
+  returnVoucherUse,
+} from './expiry.repository.js';
 
 const DEFAULT_SWEEP_INTERVAL_MS = 5000;
 const POOL_SIZE = 5;
@@ -13,72 +23,28 @@ const POOL_SIZE = 5;
 /**
  * Expires one order in its own transaction, and returns false when nothing is due.
  *
- * SKIP LOCKED lets several workers run side by side without waiting on each other.
  * Stock and voucher use go back only after the status change succeeded under the row
  * lock, so a second sweep finds a non-PENDING order and cannot return anything twice.
  * Lock order is order row, then products by SKU, then voucher, the same as order creation
  * for the rows they share. One order per transaction keeps that order true: a batch could
  * hold a voucher from its first order while waiting on a product for its second.
  */
-export async function expireOneOrder(client: pg.ClientBase): Promise<boolean> {
-  await client.query('BEGIN');
-  try {
-    const due = await client.query<{ id: string }>(
-      `SELECT id FROM orders
-       WHERE status = 'PENDING_PAYMENT' AND expires_at <= now()
-       ORDER BY expires_at
-       LIMIT 1
-       FOR UPDATE SKIP LOCKED`,
-    );
-    const orderId = due.rows[0]?.id;
-    if (orderId === undefined) {
-      await client.query('COMMIT');
-      return false;
-    }
+export function expireOneOrder(client: pg.ClientBase): Promise<boolean> {
+  return inTransaction(client, async () => {
+    const orderId = await lockNextDueOrder(client);
+    if (orderId === undefined) return false;
 
     assertTransition('PENDING_PAYMENT', 'EXPIRED');
-    const moved = await client.query<{ changed: boolean }>(
-      `SELECT transition_order($1, 'PENDING_PAYMENT', 'EXPIRED', 'system:expiry-worker',
-                               'payment window elapsed') AS changed`,
-      [orderId],
-    );
-    if (!moved.rows[0].changed) {
-      await client.query('COMMIT');
-      return true;
-    }
+    if (!(await moveToExpired(client, orderId))) return true;
 
-    const items = await client.query<{ sku: string; qty: number }>(
-      'SELECT sku, qty FROM order_items WHERE order_id = $1 ORDER BY sku',
-      [orderId],
-    );
-    for (const item of items.rows) {
-      // Unlimited products have NULL stock, and NULL + qty would stay NULL anyway.
-      await client.query(
-        `UPDATE products SET stock = stock + $2, updated_at = now()
-         WHERE sku = $1 AND stock IS NOT NULL`,
-        [item.sku, item.qty],
-      );
+    for (const item of await findItemsBySku(client, orderId)) {
+      await returnStock(client, item.sku, item.qty);
     }
-
-    const released = await client.query<{ voucher_code: string }>(
-      `UPDATE voucher_redemptions SET released_at = now()
-       WHERE order_id = $1 AND released_at IS NULL
-       RETURNING voucher_code`,
-      [orderId],
-    );
-    for (const { voucher_code: code } of released.rows) {
-      await client.query(
-        'UPDATE vouchers SET used_count = used_count - 1, updated_at = now() WHERE code = $1',
-        [code],
-      );
+    for (const code of await releaseRedemptions(client, orderId)) {
+      await returnVoucherUse(client, code);
     }
-
-    await client.query('COMMIT');
     return true;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  }
+  });
 }
 
 @Injectable()
@@ -126,9 +92,7 @@ export class ExpiryService
       } finally {
         client.release(failure);
       }
-      await this.pool.query(
-        'DELETE FROM idempotency_keys WHERE expires_at <= now()',
-      );
+      await deleteExpiredIdempotencyKeys(this.pool);
     } catch (error) {
       this.logger.error(error instanceof Error ? error.message : String(error));
     } finally {
