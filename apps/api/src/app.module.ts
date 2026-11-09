@@ -11,13 +11,18 @@ import { CatalogRepository } from './catalog/catalog.repository.js';
 import { CatalogService } from './catalog/catalog.service.js';
 import { ProblemFilter } from './common/problem.filter.js';
 import { DbModule } from './db/db.module.js';
+import { OutboxSignalService } from './db/outbox-signal.service.js';
 import { instanceHeader } from './instance-header.middleware.js';
 import { OrderAccessGuard } from './orders/order-access.guard.js';
+import { OrderOpsRepository } from './orders/order-ops.repository.js';
 import { OrdersController } from './orders/orders.controller.js';
 import { OrdersRepository } from './orders/orders.repository.js';
 import { OrdersService } from './orders/orders.service.js';
 import { TestResetController } from './test-support/test-reset.controller.js';
 import { TestResetRepository } from './test-support/test-reset.repository.js';
+import { WebhooksController } from './webhooks/webhooks.controller.js';
+import { WebhooksRepository } from './webhooks/webhooks.repository.js';
+import { WebhooksService } from './webhooks/webhooks.service.js';
 
 @Module({
   imports: [DbModule],
@@ -27,6 +32,7 @@ import { TestResetRepository } from './test-support/test-reset.repository.js';
     CatalogController,
     OrdersController,
     TestResetController,
+    WebhooksController,
   ],
   providers: [
     AdminAuthRepository,
@@ -35,10 +41,14 @@ import { TestResetRepository } from './test-support/test-reset.repository.js';
     AppService,
     CatalogRepository,
     CatalogService,
+    OrderOpsRepository,
     OrdersRepository,
     OrdersService,
     OrderAccessGuard,
+    OutboxSignalService,
     TestResetRepository,
+    WebhooksRepository,
+    WebhooksService,
     { provide: APP_FILTER, useClass: ProblemFilter },
   ],
 })
