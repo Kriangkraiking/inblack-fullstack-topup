@@ -1,9 +1,12 @@
 import { Controller, Headers, HttpCode, Post, Req, type RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ProblemError } from '../common/problem.js';
+import { SkipCsrf } from '../security/csrf.guard.js';
 import { assertValidSignature, parseWebhookEvent } from './webhook-input.js';
 import { WebhooksService } from './webhooks.service.js';
 
+// Signed by the provider and never read a cookie, so there is nothing for CSRF to forge.
+@SkipCsrf()
 @Controller('api/v1/webhooks')
 export class WebhooksController {
   constructor(private readonly webhooks: WebhooksService) {}

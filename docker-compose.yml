@@ -53,6 +53,14 @@ x-api-env: &api-env
   ADMIN_SESSION_TTL_SECONDS: ${ADMIN_SESSION_TTL_SECONDS:-28800}
   # Off because compose serves plain http on localhost. Set to true behind TLS.
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  CUSTOMER_SESSION_TTL_SECONDS: ${CUSTOMER_SESSION_TTL_SECONDS:-86400}
+  # Origins allowed to send cookie requests that change data (CSRF) and to read answers (CORS).
+  CSRF_ALLOWED_ORIGINS: ${CSRF_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:3000}
+  # HMAC key for stored OTP codes. Local test value; set your own.
+  OTP_HASH_SECRET: ${OTP_HASH_SECRET:-test_only_otp_hash_secret_change_me}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  MAIL_FROM: ${MAIL_FROM:-no-reply@inblackm.test}
 
 services:
   # -------------------------
