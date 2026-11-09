@@ -1,38 +1,5 @@
 import { toSatang } from '@inblack/domain';
-
-export interface OrderRow {
-  id: string;
-  email: string;
-  game_uid: string;
-  status: string;
-  payment_method: string;
-  voucher_code: string | null;
-  subtotal_satang: string;
-  discount_satang: string;
-  net_satang: string;
-  fee_satang: string;
-  total_satang: string;
-  vat_satang: string;
-  paid_satang: string;
-  refunded_satang: string;
-  currency: string;
-  expires_at: Date;
-  created_at: Date;
-}
-
-export interface OrderItemRow {
-  sku: string;
-  name_snapshot: string;
-  unit_price_satang: string;
-  qty: number;
-  line_total_satang: string;
-}
-
-export const ORDER_COLUMNS = `id, email, game_uid, status, payment_method, voucher_code,
-  subtotal_satang, discount_satang, net_satang, fee_satang, total_satang, vat_satang,
-  paid_satang, refunded_satang, currency, expires_at, created_at`;
-
-export const ORDER_ITEM_COLUMNS = 'sku, name_snapshot, unit_price_satang, qty, line_total_satang';
+import type { OrderItemRow, OrderRow } from './orders.repository.js';
 
 /** The page of mock-pay the customer's browser opens to pay this order. */
 export function buildPaymentUrl(orderId: string, totalSatang: number): string {

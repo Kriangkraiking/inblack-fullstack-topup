@@ -9,16 +9,18 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { isValidOrderId } from '@inblack/domain';
 import type { Response } from 'express';
 import { PROBLEM_CONTENT_TYPE } from '../common/problem.js';
 import { OrderAccessGuard } from './order-access.guard.js';
-import { parseIdempotencyKey } from './order-input.js';
-import { OrdersService } from './orders.service.js';
+import { parseIdempotencyKey, parseTrackInput } from './order-input.js';
+import { orderNotFound, OrdersService } from './orders.service.js';
 
 @Controller('api/v1/orders')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
+  // The service validates the body, because a bad body under a used key has its own answer.
   // Sends the stored string as is. Going through Nest's serialiser could change the bytes.
   @Post()
   async create(
@@ -37,12 +39,14 @@ export class OrdersController {
   @Post('track')
   @HttpCode(200)
   track(@Body() body: unknown) {
-    return this.orders.track(body);
+    return this.orders.track(parseTrackInput(body));
   }
 
   @Get(':id')
   @UseGuards(OrderAccessGuard)
   get(@Param('id') id: string) {
+    // 404 like any other order the caller cannot see, so the id format tells them nothing.
+    if (!isValidOrderId(id)) throw orderNotFound();
     return this.orders.getById(id);
   }
 }

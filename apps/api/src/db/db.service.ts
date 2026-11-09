@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import pg from 'pg';
 
+/** A connection inside an open transaction. */
+export type Tx = pg.PoolClient;
+
 const DEFAULT_POOL_SIZE = 20;
 const CONNECT_TIMEOUT_MS = 10_000;
 const STATEMENT_TIMEOUT_MS = 15_000;
