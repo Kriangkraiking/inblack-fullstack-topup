@@ -6,8 +6,16 @@ info:
     All money is integer satang. Every error is RFC 9457 `application/problem+json`
     with a machine-readable `code`.
 
-    This file covers the endpoints built so far. Customer OTP and `GET /api/v1/admin/orders`
-    from spec 8.1 are not built yet.
+    Customers sign in with an emailed code (`/api/v1/auth/otp/*`) and get the httpOnly,
+    SameSite=Strict cookie `inblack_session`. Secure is set when `COOKIE_SECURE=true`.
+
+    CSRF (ADR 0005): a POST that carries `inblack_session` or `inblack_admin_session` must send an
+    `Origin` listed in `CSRF_ALLOWED_ORIGINS` (default `http://localhost:8080,http://localhost:3000`),
+    or it gets 403 `CSRF_ORIGIN_MISMATCH`. Routes that never read a cookie are exempt: the payment
+    webhook, `POST /orders`, `/orders/track` and `/auth/otp/*`. The same origins may read answers
+    with credentials (CORS).
+
+    Rate limits answer 429 `RATE_LIMITED` (or `OTP_LOCKED`) with `Retry-After` in seconds.
 
     Every response carries `X-Request-Id` (the caller's, when it is 1-128 of `A-Za-z0-9._-`,
     otherwise a new one) and `X-Instance` (the replica that answered).
@@ -200,7 +208,11 @@ paths:
   /api/v1/orders/track:
     post:
       summary: Look up an order as a guest
-      description: An unknown order and a wrong email get the same 404 answer.
+      description: |
+        An unknown order and a wrong email get the same 404 answer, from the same query.
+        Rate limited to 10 calls a minute per client IP and 5 a minute per order id (429 with
+        `Retry-After`), counted in Redis across both replicas. While Redis is down the limit is
+        not applied (fail open, ADR 0005).
       operationId: trackOrder
       requestBody:
         required: true
@@ -242,24 +254,303 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '5XX': { $ref: '#/components/responses/ServerProblem' }
 
   /api/v1/orders/{id}:
     get:
       summary: Get an order as its owner or an admin
-      description: Always answers 404 until customer and admin sessions exist.
+      description: |
+        The owner is a customer session whose email is the order's email. Any admin can read it,
+        with email and Game UID masked for viewer. Everyone else, with or without a session, gets
+        the same 404 as an order that does not exist (spec 8.4). Customers see the timeline
+        without actor or reason.
       operationId: getOrder
+      security: [{ customerSession: [] }, { adminSession: [] }]
       parameters:
         - name: id
           in: path
           required: true
           schema: { type: string }
       responses:
+        '200':
+          description: The order, its timeline from order_events and a token for its event stream.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Order'
+                  - type: object
+                    required: [timeline, events_token, events_token_expires_at]
+                    properties:
+                      timeline:
+                        type: array
+                        items: { $ref: '#/components/schemas/TimelineEvent' }
+                      events_token: { type: string }
+                      events_token_expires_at: { type: string, format: date-time }
         '404':
           description: '`ORDER_NOT_FOUND`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/auth/otp/request:
+    post:
+      summary: Email a 6-digit sign-in code
+      description: |
+        Always 202 with the same body for a valid email, whether it has orders, is locked or asked
+        a moment ago; the email is sent in the background. A new code replaces the old one, at
+        most once per 30 s per email. Rate limited per IP (10/min) and per email (5/15 min).
+        The code is valid 5 minutes, works once, and only its HMAC is stored.
+      operationId: requestOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [detail]
+                properties:
+                  detail: { type: string }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/auth/otp/verify:
+    post:
+      summary: Exchange the code for a customer session
+      description: |
+        Sets the `inblack_session` cookie. 5 wrong codes lock the email for 15 minutes; the 5th
+        answers 429 `OTP_LOCKED`. The lock is kept in Postgres, so it holds with Redis down.
+        Sending the right code again after it was used does not count as a wrong guess.
+      operationId: verifyOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: '`inblack_session=...; HttpOnly; SameSite=Strict; Path=/`'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email]
+                properties:
+                  email: { type: string }
+        '401':
+          description: '`OTP_INVALID`: wrong, expired or used code, or no code for this email'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/auth/logout:
+    post:
+      summary: End the customer session
+      description: Needs an allowed `Origin` when the cookie is sent (CSRF).
+      operationId: customerLogout
+      responses:
+        '204': { description: Ended, or there was no session. }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/auth/me:
+    get:
+      summary: The signed-in customer
+      operationId: customerMe
+      security: [{ customerSession: [] }]
+      responses:
+        '200':
+          description: The customer's email.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [email]
+                properties:
+                  email: { type: string }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/me/orders:
+    get:
+      summary: The signed-in customer's orders, newest first
+      description: '`current` is PENDING_PAYMENT, PAID, IN_QUEUE, IN_PROGRESS and NEEDS_REVIEW; `past` is every other status.'
+      operationId: myOrders
+      security: [{ customerSession: [] }]
+      parameters:
+        - { name: tab, in: query, schema: { type: string, enum: [current, past], default: current } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string }, description: '`next_cursor` of the previous page' }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/OrderSummary'
+                        - type: object
+                          required: [items]
+                          properties:
+                            items:
+                              type: array
+                              items:
+                                type: object
+                                required: [sku, name, qty]
+                                properties:
+                                  sku: { type: string }
+                                  name: { type: string }
+                                  qty: { type: integer }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/orders:
+    get:
+      summary: Order table for admins. viewer and up.
+      description: |
+        Keyset pagination on (created_at, id), newest first: pages never repeat or skip an order,
+        even while new orders arrive. `q` is an exact order id or an exact email. viewer sees
+        email and Game UID masked, support and up in full.
+      operationId: adminListOrders
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string }, description: 'One status or a comma separated list' }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: 'created_at >= from' }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: 'created_at < to' }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/OrderSummary' }
+                  next_cursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '422':
+          description: '`VALIDATION_ERROR`, `INVALID_ORDER_ID` or `INVALID_CURSOR`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/orders/{id}:
+    get:
+      summary: Order detail for admins. viewer and up, masked for viewer.
+      description: Timeline with actor and reason, related webhooks (without the raw body), top-up attempts and refunds.
+      operationId: adminGetOrder
+      security: [{ adminSession: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The order and its history.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Order'
+                  - type: object
+                    required: [timeline, webhooks, fulfillment_attempts, refunds]
+                    properties:
+                      timeline:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/TimelineEvent'
+                            - type: object
+                              required: [actor, reason]
+                              properties:
+                                actor: { type: string, description: 'admin:<id>, api:..., worker:..., never an email' }
+                                reason: { type: string }
+                      webhooks:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            event_id: { type: string }
+                            type: { type: string }
+                            amount_satang: { type: [integer, 'null'] }
+                            currency: { type: [string, 'null'] }
+                            occurred_at: { type: [string, 'null'], format: date-time }
+                            received_at: { type: string, format: date-time }
+                            processed_at: { type: [string, 'null'], format: date-time }
+                            outcome: { type: [string, 'null'] }
+                      fulfillment_attempts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            reference: { type: string }
+                            attempt_no: { type: integer }
+                            status: { type: string, enum: [IN_FLIGHT, SUCCEEDED, FAILED, UNKNOWN] }
+                            http_status: { type: [integer, 'null'] }
+                            error: { type: [string, 'null'] }
+                            started_at: { type: string, format: date-time }
+                            finished_at: { type: [string, 'null'], format: date-time }
+                      refunds:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: string }
+                            amount_satang: { $ref: '#/components/schemas/Satang' }
+                            status: { type: string, enum: [PENDING, SUCCEEDED, FAILED] }
+                            actor: { type: string }
+                            reason: { type: string }
+                            created_at: { type: string, format: date-time }
+                            completed_at: { type: [string, 'null'], format: date-time }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '404':
+          description: '`ORDER_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
 
   /api/v1/orders/{id}/events:
     get:
@@ -679,8 +970,21 @@ components:
       type: apiKey
       in: cookie
       name: inblack_admin_session
+    customerSession:
+      type: apiKey
+      in: cookie
+      name: inblack_session
 
   responses:
+    RateLimited:
+      description: '`RATE_LIMITED` or `OTP_LOCKED`. Wait the number of seconds in Retry-After.'
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
     ClientProblem:
       description: A request the API refuses. See `code` in the body.
       content:
@@ -694,6 +998,30 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    TimelineEvent:
+      type: object
+      required: [event_id, event_type, from_status, status, occurred_at]
+      properties:
+        event_id: { type: string, description: 'order_events.id, also the SSE id' }
+        event_type: { type: string }
+        from_status: { type: [string, 'null'] }
+        status: { type: string }
+        occurred_at: { type: string, format: date-time }
+
+    OrderSummary:
+      type: object
+      required: [order_id, status, email, game_uid, payment_method, total_satang, paid_satang, refunded_satang, created_at]
+      properties:
+        order_id: { $ref: '#/components/schemas/OrderId' }
+        status: { type: string }
+        email: { type: string, description: Masked for the viewer role. }
+        game_uid: { type: string, description: Masked for the viewer role. }
+        payment_method: { $ref: '#/components/schemas/PaymentMethod' }
+        total_satang: { $ref: '#/components/schemas/Satang' }
+        paid_satang: { $ref: '#/components/schemas/Satang' }
+        refunded_satang: { $ref: '#/components/schemas/Satang' }
+        created_at: { type: string, format: date-time }
+
     AdminIdentity:
       type: object
       required: [email, role]
