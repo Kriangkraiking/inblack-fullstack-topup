@@ -1,3 +1,43 @@
+# Runs without a .env file: every ${VAR:-default} below is a local test value only.
+x-env-file: &env-file
+  - path: .env
+    required: false
+
+x-api: &api
+  image: inblack-api:local
+  build:
+    context: .
+    dockerfile: apps/api/Dockerfile
+  init: true
+  restart: unless-stopped
+  env_file: *env-file
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    mock-pay:
+      condition: service_healthy
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    interval: 5s
+    timeout: 3s
+    retries: 5
+    start_period: 20s
+
+x-api-env: &api-env
+  NODE_ENV: production
+  APP_ENV: ${APP_ENV:-development}
+  PORT: 3000
+  DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  MOCK_PAY_URL: ${MOCK_PAY_URL:-http://mock-pay:4010}
+  PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change_this_webhook_secret}
+  ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
 
 services:
   # -------------------------
@@ -8,15 +48,15 @@ services:
     container_name: inblack-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-inblack_topup}
+      POSTGRES_USER: ${POSTGRES_USER:-inblack_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_local_password}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,66 +79,21 @@ services:
       retries: 10
 
   # -------------------------
-  # API Instance 1
+  # API (same image, two instances)
   # -------------------------
   api-1:
-    build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+    <<: *api
     container_name: inblack-api-1
-    restart: unless-stopped
-    env_file:
-      - .env
     environment:
+      <<: *api-env
       INSTANCE_ID: api-1
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  # -------------------------
-  # API Instance 2
-  # -------------------------
   api-2:
-    build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+    <<: *api
     container_name: inblack-api-2
-    restart: unless-stopped
-    env_file:
-      - .env
     environment:
+      <<: *api-env
       INSTANCE_ID: api-2
-      PORT: 3000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # -------------------------
   # Nginx Load Balancer
@@ -116,81 +111,137 @@ services:
         condition: service_healthy
       api-2:
         condition: service_healthy
+    healthcheck:
+      # Checks nginx itself, so an API outage does not mark the proxy unhealthy.
+      test: ["CMD", "nc", "-z", "127.0.0.1", "80"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # -------------------------
   # Worker
   # -------------------------
   worker:
     build:
-      context: ./apps/worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/worker/Dockerfile
     container_name: inblack-worker
+    init: true
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: *env-file
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
-      MOCK_GAME_URL: ${MOCK_GAME_URL}
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-inblack_user}:${POSTGRES_PASSWORD:-change_this_local_password}@postgres:5432/${POSTGRES_DB:-inblack_topup}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      MOCK_GAME_URL: ${MOCK_GAME_URL:-http://mock-game:4020}
+      ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       mock-game:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      # HeartbeatService touches this file every 30s; stale for 90s means the loop stopped.
+      test:
+        - CMD
+        - node
+        - -e
+        - "process.exit(Date.now()-require('fs').statSync('/tmp/worker-heartbeat').mtimeMs<90000?0:1)"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
 
   # -------------------------
   # Mock Payment
   # -------------------------
   mock-pay:
     build:
-      context: ./services/mock-pay
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/mock-pay/Dockerfile
     container_name: inblack-mock-pay
+    init: true
     restart: unless-stopped
     ports:
       - "4010:4010"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4010/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # -------------------------
   # Mock Game
   # -------------------------
   mock-game:
     build:
-      context: ./services/mock-game
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/mock-game/Dockerfile
     container_name: inblack-mock-game
+    init: true
     restart: unless-stopped
     ports:
       - "4020:4020"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4020/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # -------------------------
   # Next.js Frontend
   # -------------------------
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: inblack-web
+    init: true
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      NODE_ENV: development
+      NODE_ENV: production
     depends_on:
       nginx:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
 
   # -------------------------
   # Mailpit
   # -------------------------
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.33.1
     container_name: inblack-mailpit
     restart: unless-stopped
     ports:
       - "8025:8025"
       - "1025:1025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   postgres_data:
