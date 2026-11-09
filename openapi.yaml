@@ -57,7 +57,7 @@ paths:
         - name: slug
           in: path
           required: true
-          schema: { type: string, examples: [flash-skin-01] }
+          schema: { type: string, pattern: '^[a-z0-9-]{1,64}$', examples: [flash-skin-01] }
       responses:
         '200':
           description: The product. Cacheable for 15 seconds.
@@ -72,6 +72,11 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: '`VALIDATION_ERROR` when the slug does not match the pattern'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '5XX': { $ref: '#/components/responses/ServerProblem' }
 
   /api/v1/orders:
@@ -83,18 +88,20 @@ paths:
 
         Repeating a key with the same body returns the first status and the same body
         byte for byte, also for parallel requests, and creates one order. This includes
-        stored business errors such as `OUT_OF_STOCK`. Bodies are compared as JSON, so
-        key order and whitespace do not matter. Keys are kept for at least 24 hours.
+        stored business errors such as `OUT_OF_STOCK`. Requests are compared after validation,
+        so key order, whitespace, email case and unknown fields do not matter. Keys are kept
+        for at least 24 hours.
 
         A body that fails `VALIDATION_ERROR`, `EMPTY_CART` or `INVALID_QUANTITY` is not
-        stored, so the client can fix it and retry with the same key. A 5XX is not stored
-        either, because nothing was committed.
+        stored, so the client can fix it and retry with the same key. Under a key that is
+        already used it gets `IDEMPOTENCY_KEY_REUSED` instead. A 5XX is not stored either,
+        because nothing was committed.
       operationId: createOrder
       parameters:
         - name: Idempotency-Key
           in: header
           required: true
-          schema: { type: string, minLength: 1, maxLength: 255 }
+          schema: { type: string, pattern: '^[!-~]{1,255}$' }
       requestBody:
         required: true
         content:
@@ -114,12 +121,22 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }
         '400':
-          description: '`IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` or `BAD_REQUEST` for broken JSON'
+          description: '`IDEMPOTENCY_KEY_REQUIRED`, `IDEMPOTENCY_KEY_INVALID` or `BAD_REQUEST` for a body that cannot be parsed'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '409':
           description: '`OUT_OF_STOCK`, `VOUCHER_EXHAUSTED` or `PER_CUSTOMER_LIMIT`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '413':
+          description: '`HTTP_413`, for a body over the size limit'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '415':
+          description: '`HTTP_415`, for an unsupported charset or content encoding'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -269,7 +286,11 @@ components:
           type: string
           pattern: '^[A-Za-z0-9_-]{4,32}$'
         payment_method: { $ref: '#/components/schemas/PaymentMethod' }
-        voucher_code: { type: [string, 'null'], examples: [SAVE10] }
+        voucher_code:
+          type: [string, 'null']
+          maxLength: 64
+          description: Case-insensitive. Blank means no voucher.
+          examples: [SAVE10]
         items:
           type: array
           minItems: 1
@@ -279,7 +300,7 @@ components:
             type: object
             required: [sku, qty]
             properties:
-              sku: { type: string }
+              sku: { type: string, pattern: '^[A-Z0-9-]{1,64}$' }
               qty: { type: integer, minimum: 1, maximum: 1000 }
 
     Order:

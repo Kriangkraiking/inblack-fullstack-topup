@@ -26,6 +26,7 @@ The key row is inserted with `ON CONFLICT DO NOTHING` as the first statement, in
 - Business errors such as `OUT_OF_STOCK` roll back to a savepoint, which keeps the key and stores the error, so a retry gets the same answer.
 - 5XX errors roll back everything, so a retry runs again and can succeed.
 - A body that fails validation is not stored, so a client can fix it and keep the key.
+- Requests are compared by a hash of the validated input, not the raw body, so formatting and unknown fields cannot make the same request look different.
 
 The alternative was a separate "reserve key" commit followed by the work, with waiters polling. That needs a recovery path for abandoned keys and gives nothing in return here.
 
