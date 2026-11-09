@@ -9,6 +9,7 @@ import { instanceHeader } from './instance-header.middleware.js';
 import { OrderAccessGuard } from './orders/order-access.guard.js';
 import { OrdersController } from './orders/orders.controller.js';
 import { OrdersService } from './orders/orders.service.js';
+import { TestResetController } from './test-support/test-reset.controller.js';
 
 @Module({
   imports: [DbModule],
@@ -16,6 +17,7 @@ import { OrdersService } from './orders/orders.service.js';
     AppController,
     CatalogController,
     OrdersController,
+    TestResetController,
   ],
   providers: [
     AppService,
