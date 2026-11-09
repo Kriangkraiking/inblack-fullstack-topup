@@ -1,5 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { AdminAuthController } from './admin/admin-auth.controller.js';
+import { AdminAuthGuard } from './admin/admin-auth.guard.js';
+import { AdminAuthRepository } from './admin/admin-auth.repository.js';
+import { AdminAuthService } from './admin/admin-auth.service.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { CatalogController } from './catalog/catalog.controller.js';
@@ -18,12 +22,16 @@ import { TestResetRepository } from './test-support/test-reset.repository.js';
 @Module({
   imports: [DbModule],
   controllers: [
+    AdminAuthController,
     AppController,
     CatalogController,
     OrdersController,
     TestResetController,
   ],
   providers: [
+    AdminAuthRepository,
+    AdminAuthService,
+    { provide: APP_GUARD, useClass: AdminAuthGuard },
     AppService,
     CatalogRepository,
     CatalogService,
