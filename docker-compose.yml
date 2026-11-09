@@ -44,6 +44,8 @@ x-api-env: &api-env
   MOCK_PAY_PUBLIC_URL: ${MOCK_PAY_PUBLIC_URL:-http://localhost:4010}
   WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-http://localhost:3000}
   PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
+  # Signs the token that opens GET /api/v1/orders/{id}/events. Local test value; set your own.
+  ORDER_EVENTS_TOKEN_SECRET: ${ORDER_EVENTS_TOKEN_SECRET:-test_only_order_events_secret_change_me}
   ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
   ADMIN_SESSION_TTL_SECONDS: ${ADMIN_SESSION_TTL_SECONDS:-28800}
   # Off because compose serves plain http on localhost. Set to true behind TLS.

@@ -14,6 +14,13 @@ import { ProblemFilter } from './common/problem.filter.js';
 import { DbModule } from './db/db.module.js';
 import { OutboxSignalService } from './db/outbox-signal.service.js';
 import { instanceHeader } from './instance-header.middleware.js';
+import { HealthController, ReadinessService } from './observability/health.controller.js';
+import { MetricsRepository } from './observability/metrics.repository.js';
+import { MetricsService } from './observability/metrics.service.js';
+import { EventsTokenService } from './realtime/events-token.service.js';
+import { OrderEventsController } from './realtime/order-events.controller.js';
+import { OrderEventsRepository } from './realtime/order-events.repository.js';
+import { OrderSignalService } from './realtime/order-signal.service.js';
 import { OrderAccessGuard } from './orders/order-access.guard.js';
 import { OrderOpsRepository } from './orders/order-ops.repository.js';
 import { OrdersController } from './orders/orders.controller.js';
@@ -38,6 +45,8 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AppController,
     AuditLogsController,
     CatalogController,
+    HealthController,
+    OrderEventsController,
     OrdersController,
     ReconciliationController,
     TestResetController,
@@ -50,12 +59,18 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AppService,
     CatalogRepository,
     CatalogService,
+    EventsTokenService,
+    MetricsRepository,
+    MetricsService,
     MockPayResetClient,
     OrderOpsRepository,
     OrdersRepository,
     OrdersService,
     OrderAccessGuard,
+    OrderEventsRepository,
+    OrderSignalService,
     OutboxSignalService,
+    ReadinessService,
     ReconciliationRepository,
     RefundsService,
     TestResetRepository,

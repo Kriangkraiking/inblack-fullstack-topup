@@ -12,13 +12,17 @@ import {
 import { isValidOrderId } from '@inblack/domain';
 import type { Response } from 'express';
 import { PROBLEM_CONTENT_TYPE } from '../common/problem.js';
+import { EventsTokenService } from '../realtime/events-token.service.js';
 import { OrderAccessGuard } from './order-access.guard.js';
 import { parseIdempotencyKey, parseTrackInput } from './order-input.js';
 import { orderNotFound, OrdersService } from './orders.service.js';
 
 @Controller('api/v1/orders')
 export class OrdersController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly eventsTokens: EventsTokenService,
+  ) {}
 
   // The service validates the body, because a bad body under a used key has its own answer.
   // Sends the stored string as is. Going through Nest's serialiser could change the bytes.
@@ -38,8 +42,10 @@ export class OrdersController {
 
   @Post('track')
   @HttpCode(200)
-  track(@Body() body: unknown) {
-    return this.orders.track(parseTrackInput(body));
+  async track(@Body() body: unknown) {
+    const order = await this.orders.track(parseTrackInput(body));
+    // Opens GET /orders/{id}/events without the email, which must not go into a URL.
+    return { ...order, ...this.eventsTokens.issue(order.order_id) };
   }
 
   @Get(':id')
