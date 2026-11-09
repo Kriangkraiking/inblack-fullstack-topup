@@ -187,8 +187,13 @@ services:
     container_name: inblack-mock-pay
     init: true
     restart: unless-stopped
+    environment:
+      WEBHOOK_URL: ${WEBHOOK_URL:-http://proxy/api/v1/webhooks/payment}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
     ports:
       - "4010:4010"
+    volumes:
+      - mock_pay_data:/data
     healthcheck:
       test:
         - CMD
@@ -209,8 +214,15 @@ services:
     container_name: inblack-mock-game
     init: true
     restart: unless-stopped
+    environment:
+      FAIL_RATE: ${FAIL_RATE:-0}
+      TIMEOUT_RATE: ${TIMEOUT_RATE:-0}
+      SUCCESS_BUT_TIMEOUT_RATE: ${SUCCESS_BUT_TIMEOUT_RATE:-0}
+      LATENCY_MS: ${LATENCY_MS:-0}
     ports:
       - "4020:4020"
+    volumes:
+      - mock_game_data:/data
     healthcheck:
       test:
         - CMD
@@ -268,3 +280,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  mock_pay_data:
+  mock_game_data:
