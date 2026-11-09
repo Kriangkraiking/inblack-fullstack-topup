@@ -6,6 +6,7 @@ import {
   assertPerOrderLimit,
   assertVoucherUsable,
   countsTowardEmailLimit,
+  isValidGameUid,
   mergeCartLines,
   normalizeEmail,
   normalizeVoucherCode,
@@ -131,5 +132,15 @@ describe('refund planning', () => {
 
   it('every refundable status has a path to REFUNDED', () => {
     for (const status of REFUNDABLE_STATUSES) expect(canTransition(status, 'REFUNDED')).toBe(true);
+  });
+});
+
+describe('isValidGameUid', () => {
+  it.each(['1234', 'player_01', 'A-b_9', 'x'.repeat(32)])('accepts %s', (uid) => {
+    expect(isValidGameUid(uid)).toBe(true);
+  });
+
+  it.each(['', 'abc', 'x'.repeat(33), 'a b c d', 'abc$', 'abcd' + String.fromCharCode(10), '<script>'])('rejects %j', (uid) => {
+    expect(isValidGameUid(uid)).toBe(false);
   });
 });

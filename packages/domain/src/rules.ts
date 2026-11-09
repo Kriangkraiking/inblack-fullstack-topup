@@ -10,6 +10,15 @@ export function normalizeVoucherCode(code: string): string {
   return code.trim().toUpperCase();
 }
 
+// ---------- Game UID ----------
+
+const GAME_UID_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
+
+/** A format check only. Whether the player exists is the game's to say. */
+export function isValidGameUid(gameUid: string): boolean {
+  return GAME_UID_PATTERN.test(gameUid);
+}
+
 // ---------- Vouchers ----------
 
 export interface VoucherState {
