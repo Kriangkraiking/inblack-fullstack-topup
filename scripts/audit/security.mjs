@@ -3,6 +3,7 @@
 // pagination, headers), with real requests against a running compose stack. Node built-ins only.
 //
 //   node scripts/audit/security.mjs [--api http://127.0.0.1:8080] [--mailpit http://127.0.0.1:8025]
+//                                   [--pay http://127.0.0.1:4010] [--web http://127.0.0.1:3000]
 //
 // Facts come from the HTTP answers, mailpit's API and Postgres (docker exec psql). The track
 // timing check runs inside inblack-api-1, straight at the replica, with one made-up X-Real-IP per
@@ -18,6 +19,8 @@ const argv = process.argv.slice(2);
 const opt = (name, fallback) => (argv.includes(`--${name}`) ? argv[argv.indexOf(`--${name}`) + 1] : fallback);
 const API = opt('api', 'http://127.0.0.1:8080');
 const MAIL = opt('mailpit', 'http://127.0.0.1:8025');
+const PAY = opt('pay', 'http://127.0.0.1:4010');
+const WEB = opt('web', 'http://127.0.0.1:3000');
 // The compose default of CSRF_ALLOWED_ORIGINS includes this.
 const GOOD_ORIGIN = 'http://localhost:8080';
 const EVIL_ORIGIN = 'https://evil.example';
@@ -102,10 +105,12 @@ async function signIn(address) {
   return { cookie: v.setCookie[0].split(';')[0], setCookie: v.setCookie[0], code };
 }
 
+let lastAdminSetCookie = '';
 async function adminLogin(role) {
   const cap = role[0].toUpperCase() + role.slice(1);
   const r = await post('/api/v1/admin/auth/login', { email: `${role}@inblackm.test`, password: `${cap}-Test-2026` });
   if (r.status !== 200) throw new Error(`admin login ${role}: ${r.status} ${r.text}`);
+  lastAdminSetCookie = r.setCookie[0];
   return r.setCookie[0].split(';')[0];
 }
 
@@ -144,6 +149,10 @@ async function otp(ctx) {
   ctx.aCookie = a.cookie;
   const flags = a.setCookie.toLowerCase();
   check('otp/cookie', 'session cookie is HttpOnly and SameSite=Strict', flags.includes('httponly') && flags.includes('samesite=strict') && flags.startsWith('inblack_session='), a.setCookie.replace(/=[^;]+/, '=<token>'));
+  check('cookie/secure-customer', 'customer session cookie carries Secure (COOKIE_SECURE defaults to true)', /;\s*secure(;|$)/.test(flags), a.setCookie.replace(/=[^;]+/, '=<token>'));
+  // A cross-site HTML form can send urlencoded without a preflight; verify must refuse it (login CSRF).
+  const formVerify = await http('POST', '/api/v1/auth/otp/verify', { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ email: ctx.a, code: '123456' }).toString() });
+  check('otp/json-only', 'OTP verify with a form body gets 415 problem+json', formVerify.status === 415 && formVerify.json?.code === 'UNSUPPORTED_MEDIA_TYPE', { status: formVerify.status, code: formVerify.json?.code });
   const me = await http('GET', '/api/v1/auth/me', { headers: { Cookie: a.cookie } });
   check('otp/me', 'GET /auth/me returns the signed-in email', me.status === 200 && me.json?.email === ctx.a, { status: me.status, body: me.json });
 
@@ -191,8 +200,11 @@ async function masking(ctx) {
   const support = await adminLogin('support');
   ctx.viewer = viewer;
   const q = encodeURIComponent(ctx.b);
-  const asViewer = await http('GET', `/api/v1/admin/orders?q=${q}`, { headers: { Cookie: viewer } });
+  // A viewer searches by order id only (an email search would unmask the buyer), support by email.
+  const asViewer = await http('GET', `/api/v1/admin/orders?q=${ctx.bOrder}`, { headers: { Cookie: viewer } });
   const asSupport = await http('GET', `/api/v1/admin/orders?q=${q}`, { headers: { Cookie: support } });
+  const viewerByEmail = await http('GET', `/api/v1/admin/orders?q=${q}`, { headers: { Cookie: viewer } });
+  check('mask/viewer-email-search', 'viewer searching admin orders by email gets 403 problem+json and no order data', viewerByEmail.status === 403 && viewerByEmail.json?.code === 'EMAIL_SEARCH_FORBIDDEN' && !viewerByEmail.text.includes(ctx.bOrder), { status: viewerByEmail.status, code: viewerByEmail.json?.code });
   const v = asViewer.json?.items?.[0];
   const s = asSupport.json?.items?.[0];
   check('mask/list', 'admin list: viewer sees email and Game UID masked, support in full', v && s && v.order_id === ctx.bOrder && v.email !== ctx.b && v.email.includes('***') && !asViewer.text.includes(ctx.b) && v.game_uid.includes('*') && s.email === ctx.b && !s.game_uid.includes('*'), { viewer: v && [v.email, v.game_uid], support: s && [s.email, s.game_uid] });
@@ -308,6 +320,155 @@ async function trackLimits(ctx) {
   check('track/spoof', 'X-Forwarded-For and X-Real-IP sent by the client do not reset the count', spoof.status === 429, { status: spoof.status });
 }
 
+// ---------- added for the P2 security fixes ----------
+
+async function metricsPaths() {
+  const variants = ['/metrics', '/METRICS', '/Metrics', '//metrics', '/%6detrics', '/metrics/', '/MeTrIcS?x=1'];
+  const answers = [];
+  for (const path of variants) {
+    const r = await http('GET', path);
+    answers.push({ path, status: r.status, bytes: r.text.length, prometheus: r.text.includes('# HELP') });
+  }
+  check('metrics/variants', 'every spelling of /metrics through nginx is 404 with no Prometheus text', answers.every((a) => a.status === 404 && !a.prometheus), answers);
+  const r = await http('GET', '/api/v1/products');
+  const server = r.headers.get('server') ?? '';
+  check('headers/server-tokens', 'nginx does not reveal its version in Server', !/\d/.test(server), { server });
+}
+
+async function waitOrderStatus(orderId, wanted, timeoutMs = 60_000) {
+  const end = Date.now() + timeoutMs;
+  let status = '';
+  while (Date.now() < end) {
+    status = psql(`SELECT status FROM orders WHERE id = '${orderId}'`);
+    if (wanted.includes(status)) return status;
+    await sleep(500);
+  }
+  return status;
+}
+
+async function products() {
+  const roles = {};
+  for (const role of ['viewer', 'support', 'finance', 'superadmin']) roles[role] = await adminLogin(role);
+  check('cookie/secure-admin', 'admin session cookie carries Secure, HttpOnly and SameSite=Strict', /;\s*secure(;|$)/i.test(lastAdminSetCookie) && /httponly/i.test(lastAdminSetCookie) && /samesite=strict/i.test(lastAdminSetCookie), lastAdminSetCookie.replace(/=[^;]+/, '=<token>'));
+  const su = roles.superadmin;
+  const patch = (cookie, sku, body) => http('PATCH', `/api/v1/admin/products/${sku}`, { headers: { ...jsonBody(), Cookie: cookie, Origin: GOOD_ORIGIN }, body: JSON.stringify(body) });
+  const list = await http('GET', '/api/v1/admin/products', { headers: { Cookie: su } });
+  const diamond = list.json?.items?.find((p) => p.sku === 'DIAMOND-1000');
+  const flash = list.json?.items?.find((p) => p.sku === 'FLASH-SKIN-01');
+  if (!diamond || !flash) throw new Error(`admin products list: ${list.status} ${list.text}`);
+  check('products/list', 'superadmin GET /admin/products: 200 with integer satang', list.status === 200 && Number.isSafeInteger(diamond.price_satang), { status: list.status, diamond: diamond.price_satang });
+
+  const denied = [];
+  for (const role of ['viewer', 'support', 'finance']) {
+    const r = await patch(roles[role], 'DIAMOND-1000', { name: `hacked by ${role}` });
+    const g = await http('GET', '/api/v1/admin/products', { headers: { Cookie: roles[role] } });
+    denied.push({ role, patch: r.status, list: g.status, type: r.headers.get('content-type') });
+  }
+  const nameNow = psql(`SELECT name FROM products WHERE sku = 'DIAMOND-1000'`);
+  check('products/roles', 'viewer, support and finance get 403 problem+json on PATCH and list, and the name is unchanged', denied.every((d) => d.patch === 403 && d.list === 403 && (d.type ?? '').includes('application/problem+json')) && nameNow === diamond.name, { denied, nameNow });
+
+  const bad = [];
+  for (const body of [{ price_satang: 99.5 }, { price_satang: '34900' }, { price_satang: 0 }, { stock: -1, expected_stock: flash.stock }, { stock: 1 }]) {
+    const r = await patch(su, 'FLASH-SKIN-01', body);
+    bad.push([JSON.stringify(body), r.status, r.json?.code]);
+  }
+  check('products/validation', 'non-integer, string or zero price and negative or unguarded stock get 422', bad.every(([, st]) => st === 422), bad);
+
+  // Stock: guarded by expected_stock, applied under the row lock, then put back.
+  const s0 = flash.stock;
+  const stale = await patch(su, 'FLASH-SKIN-01', { stock: s0 + 5, expected_stock: s0 + 1 });
+  const mode = await patch(su, 'FLASH-SKIN-01', { stock: null, expected_stock: s0 });
+  const set = await patch(su, 'FLASH-SKIN-01', { stock: s0 + 5, expected_stock: s0 });
+  const back = await patch(su, 'FLASH-SKIN-01', { stock: s0, expected_stock: s0 + 5 });
+  check('products/stock', 'stale expected_stock 409 STOCK_CHANGED, limited to unlimited 409, a fresh one 200, then restored', stale.status === 409 && stale.json?.code === 'STOCK_CHANGED' && mode.status === 409 && mode.json?.code === 'STOCK_MODE_LOCKED' && set.status === 200 && set.json?.stock === s0 + 5 && back.status === 200 && psql(`SELECT stock FROM products WHERE sku = 'FLASH-SKIN-01'`) === String(s0), { stale: [stale.status, stale.json?.code], mode: [mode.status, mode.json?.code], set: [set.status, set.json?.stock], back: back.status });
+
+  // Locked price (spec 5.2): an order made before a price change keeps its price through payment and refund.
+  const orderId = await createOrder(email('price'));
+  const oldTotal = Number(psql(`SELECT total_satang FROM orders WHERE id = '${orderId}'`));
+  const newPrice = diamond.price_satang + 1000;
+  try {
+    const up = await patch(su, 'DIAMOND-1000', { price_satang: newPrice });
+    const catalog = await http('GET', '/api/v1/products');
+    const shown = catalog.json?.items?.find((p) => p.sku === 'DIAMOND-1000')?.price_satang;
+    const item = psql(`SELECT unit_price_satang || ' ' || line_total_satang FROM order_items WHERE order_id = '${orderId}'`);
+    const total = Number(psql(`SELECT total_satang FROM orders WHERE id = '${orderId}'`));
+    const paid = await http('POST', '/checkout/pay', { base: PAY, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ order_id: orderId, amount_satang: String(oldTotal), scenario: 'success' }).toString() });
+    const status = await waitOrderStatus(orderId, ['COMPLETED', 'NEEDS_REVIEW', 'FAILED']);
+    const refund = (amount) => post(`/api/v1/admin/orders/${orderId}/refund`, { amount_satang: amount, reason: 'locked price audit' }, { Cookie: roles.finance, Origin: GOOD_ORIGIN, 'Idempotency-Key': `sec-${randomUUID()}` });
+    const over = await refund(oldTotal + 1);
+    const full = await refund(oldTotal);
+    const refunded = psql(`SELECT coalesce(sum(amount_satang), 0) FROM refunds WHERE order_id = '${orderId}'`);
+    check('products/locked-price', 'after a price change the old order keeps its price, is paid at the old total and refunds at most that', up.status === 200 && shown === newPrice && item === `${diamond.price_satang} ${diamond.price_satang}` && total === oldTotal && paid.status === 200 && status === 'COMPLETED' && over.status === 409 && full.status === 202 && refunded === String(oldTotal), { patch: up.status, catalog: shown, item, total, paid: paid.status, status, over: [over.status, over.json?.code], full: full.status, refunded });
+  } finally {
+    await patch(su, 'DIAMOND-1000', { price_satang: diamond.price_satang });
+  }
+  const priceNow = psql(`SELECT price_satang FROM products WHERE sku = 'DIAMOND-1000'`);
+  check('products/price-restored', 'DIAMOND-1000 price is back to what it was', priceNow === String(diamond.price_satang), priceNow);
+
+  // Spec 8.4: markup in a product name is text everywhere.
+  const XSS = '<img src=x onerror=alert(1)>';
+  try {
+    const r = await patch(su, 'DIAMOND-1000', { name: XSS });
+    const api = await http('GET', '/api/v1/products');
+    const apiName = api.json?.items?.find((p) => p.sku === 'DIAMOND-1000')?.name;
+    let html = '';
+    for (let i = 0; i < 40; i += 1) {
+      html = (await http('GET', '/', { base: WEB })).text;
+      if (html.includes('&lt;img src=x')) break;
+      await sleep(500);
+    }
+    check('products/xss-api', 'the XSS name comes back from the API as the exact string', r.status === 200 && r.json?.name === XSS && apiName === XSS, { patch: r.status, apiName });
+    check('products/xss-html', 'catalog HTML from :3000 has the name escaped (&lt;img) and no <img src=x element', html.includes('&lt;img src=x') && !html.includes('<img src=x'), { escaped: html.includes('&lt;img src=x'), raw: html.includes('<img src=x'), bytes: html.length });
+  } finally {
+    await patch(su, 'DIAMOND-1000', { name: diamond.name });
+  }
+  const nameBack = psql(`SELECT name FROM products WHERE sku = 'DIAMOND-1000'`);
+  check('products/name-restored', 'DIAMOND-1000 name is back to what it was', nameBack === diamond.name, nameBack);
+}
+
+async function adminLoginLimits() {
+  const login = (mail, password = 'wrong-password') => post('/api/v1/admin/auth/login', { email: mail, password });
+  // Start in a fresh per-IP window, as trackLimits does.
+  log('waiting for a fresh admin login rate limit window (up to a minute)');
+  let wait = 0;
+  for (let i = 0; i < 12; i += 1) {
+    const r = await login(email('sync-login'));
+    if (r.status === 429 && r.json?.code === 'RATE_LIMITED') {
+      wait = Number(r.headers.get('retry-after'));
+      break;
+    }
+  }
+  if (!wait) throw new Error('no 429 after 12 admin login attempts, cannot line up a window');
+  await sleep((wait + 1) * 1000);
+
+  // A real admin with a wrong password and an unknown email: the same bytes.
+  const known = await login('support@inblackm.test');
+  const unknownMail = email('nobody-admin');
+  const statuses = [];
+  let first;
+  for (let i = 0; i < 5; i += 1) {
+    const r = await login(unknownMail);
+    first ??= r;
+    statuses.push(r.status);
+  }
+  check('admin-login/same-401', 'wrong password for a real admin and an unknown email give the same 401 bytes', known.status === 401 && first.status === 401 && known.text === first.text, { known: [known.status, known.text], unknown: [first.status, first.text] });
+  const sixth = await login(unknownMail);
+  const retry = Number(sixth.headers.get('retry-after'));
+  check('admin-login/email-lock', '5 attempts on one email, the 6th is 429 LOGIN_LOCKED problem+json with Retry-After about 15 min', JSON.stringify(statuses) === '[401,401,401,401,401]' && sixth.status === 429 && sixth.json?.code === 'LOGIN_LOCKED' && retry > 800 && retry <= 900 && (sixth.headers.get('content-type') ?? '').includes('application/problem+json'), { statuses, sixth: sixth.status, code: sixth.json?.code, retryAfter: retry });
+
+  const rest = [];
+  for (let i = 0; i < 3; i += 1) rest.push((await login(email('spray'))).status);
+  const eleventh = await login(email('spray'));
+  check('admin-login/ip', '11 login attempts from one IP in a minute: the 11th is 429 RATE_LIMITED with Retry-After', rest.every((st) => st === 401) && eleventh.status === 429 && eleventh.json?.code === 'RATE_LIMITED' && Number(eleventh.headers.get('retry-after')) > 0, { rest, eleventh: eleventh.status, code: eleventh.json?.code, retryAfter: eleventh.headers.get('retry-after') });
+  const spoof = await post('/api/v1/admin/auth/login', { email: email('spoof'), password: 'x' }, { 'X-Forwarded-For': '198.51.100.7', 'X-Real-IP': '198.51.100.8' });
+  check('admin-login/spoof', 'client X-Forwarded-For and X-Real-IP do not reset the admin login count', spoof.status === 429, { status: spoof.status });
+
+  // Leave the IP allowance fresh for whatever runs next (invariants.mjs signs in as finance).
+  const left = Number(eleventh.headers.get('retry-after')) || 60;
+  log(`waiting ${left + 1}s for the admin login window to end`);
+  await sleep((left + 1) * 1000);
+}
+
 // ---------- main ----------
 
 try {
@@ -323,6 +484,7 @@ try {
   for (let i = 0; i < 15; i += 1) await createOrder(email('fill'));
 
   await headers();
+  await metricsPaths();
   await otp(ctx);
   await idor(ctx);
   await masking(ctx);
@@ -330,6 +492,8 @@ try {
   await cursor(ctx);
   await enumeration();
   await trackLimits(ctx);
+  await products();
+  await adminLoginLimits();
 } catch (error) {
   console.error(`audit could not run: ${error.stack ?? error}`);
   process.exit(2);
