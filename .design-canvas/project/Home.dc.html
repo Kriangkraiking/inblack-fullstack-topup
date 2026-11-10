@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>หน้าแรก · InBlack Top-Up</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:var(--bg,#F5F5F7)}
+.ib,.ib *{box-sizing:border-box}
+.ib button,.ib input,.ib select,.ib textarea{font:inherit;color:inherit}
+.ib :focus-visible{outline:3px solid var(--focus,#0B57D0);outline-offset:2px}
+.ib a{color:var(--brand-text,#C8102E)}
+.ib-p{cursor:pointer;transition:background-color .15s,border-color .15s,box-shadow .15s,transform .15s}
+.ib-p:disabled{cursor:not-allowed}
+.ib-btn:hover:not(:disabled){background:var(--brand-hover,#A10C24)!important}
+.ib-btn2:hover:not(:disabled){background:var(--surface-2,#F1F1F4)!important}
+.ib-btnw:hover:not(:disabled){background:var(--brand-soft,#FDE8EB)!important}
+.ib-btnh:hover:not(:disabled){background:rgba(255,255,255,.16)!important}
+.ib-btnd:hover:not(:disabled){background:#8F1C13!important}
+.ib-chip:hover{border-color:var(--brand,#C8102E)!important}
+.ib-card:hover{box-shadow:0 6px 20px rgba(20,20,30,.08)!important;transform:translateY(-2px)}
+.ib-row:hover{background:var(--surface-2,#F1F1F4)}
+.ib-skel{background:linear-gradient(90deg,var(--surface-2,#F1F1F4),var(--border,#E1E1E7),var(--surface-2,#F1F1F4));background-size:200% 100%;animation:ibSh 1.4s ease-in-out infinite;border-radius:8px}
+.ib-spin{animation:ibSp .8s linear infinite}
+.ib-pulse{animation:ibPu 1.6s ease-in-out infinite}
+.ib-in{animation:ibIn .25s ease-out}
+.ib-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.ib-skip{position:absolute;left:-9999px;top:8px;z-index:50;background:#FFFFFF;color:#C8102E;padding:8px 16px;border-radius:8px;font-weight:700}
+.ib-skip:focus{left:16px}
+@keyframes ibSh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@keyframes ibSp{to{transform:rotate(360deg)}}
+@keyframes ibPu{50%{opacity:.35}}
+@keyframes ibIn{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.ib *{animation:none!important;transition:none!important}.ib-card:hover{transform:none}}
+</style>
+</helmet>
+<div class="ib" ref="{{measure}}" style="font-family: 'Noto Sans Thai', 'Leelawadee UI', Tahoma, system-ui, sans-serif; line-height: 1.6; color: var(--text,#16161A); background: var(--bg,#F5F5F7); position: relative; width: 100%">
+<a class="ib-skip" href="#catalog">ข้ามไปยังรายการสินค้า</a>
+
+<header style="background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF)">
+<div style="max-width: 1200px; margin: 0 auto; padding: 0 {{gut}}; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px">
+<div style="display: flex; align-items: center">
+<button class="ib-p ib-btnh" type="button" aria-label="เปิดเมนู" style="width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--on-brand,#FFFFFF)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</div>
+<button class="ib-p" type="button" onClick="{{goHome}}" aria-label="InBlack Top-Up หน้าแรก" style="display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--on-brand,#FFFFFF); padding: 6px 8px; border-radius: 8px">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12l4 6-10 12L2 9l4-6z"/><path d="M2 9h20"/></svg>
+<span style="font-size: {{logoSize}}; font-weight: 800; letter-spacing: 1px; line-height: 1">INBLACK</span>
+</button>
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px">
+<button class="ib-p ib-btnh" type="button" aria-label="ภาษาไทย สกุลเงินบาท เปลี่ยนได้" style="height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.55); background: var(--brand-strong,#8E0B20); color: var(--on-brand,#FFFFFF); font-size: 14px; font-weight: 600; white-space: nowrap">TH · ฿</button>
+<sc-if value="{{desktop}}" hint-placeholder-val="{{true}}"><button class="ib-p ib-btnw" type="button" style="height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: var(--surface,#FFFFFF); color: var(--brand-text,#C8102E); font-size: 14px; font-weight: 700; white-space: nowrap">เข้าสู่ระบบ</button></sc-if>
+<sc-if value="{{mobile}}" hint-placeholder-val="{{false}}"><button class="ib-p ib-btnh" type="button" aria-label="เข้าสู่ระบบ" style="width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--on-brand,#FFFFFF)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button></sc-if>
+</div>
+</div>
+</header>
+
+<div style="background: var(--surface,#FFFFFF); border-bottom: 1px solid var(--border,#E1E1E7)">
+<div style="max-width: 1200px; margin: 0 auto; padding: 12px {{gut}}">
+<form role="search" onSubmit="{{noSubmit}}">
+<label style="position: relative; display: block">
+<span class="ib-sr">ค้นหาสินค้า</span>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 16px; top: 14px; color: var(--muted,#5B5B66)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+<input type="search" value="{{q}}" onChange="{{setQ}}" placeholder="ค้นหาแพ็กเกจ เช่น Diamonds, Monthly Pass" style="width: 100%; height: 48px; padding: 0 16px 0 48px; border: 1px solid var(--border-strong,#8A8A96); border-radius: 999px; background: var(--surface-2,#F1F1F4); font-size: 16px; color: var(--text,#16161A)">
+</label>
+</form>
+</div>
+</div>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: {{mainPad}}; display: flex; flex-direction: column; gap: {{gapL}}">
+<section aria-label="แนะนำร้าน" style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); padding: {{heroPad}}; display: flex; flex-wrap: wrap; align-items: center; gap: 24px; overflow: hidden">
+<div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<span style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 2px 12px; border-radius: 999px; background: var(--brand-soft,#FDE8EB); color: var(--brand-strong,#8E0B20); font-size: 14px; font-weight: 600">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+เติมเกมออนไลน์ · ราคารวม VAT
+</span>
+<h1 style="margin: 0; font-size: {{heroSize}}; line-height: 1.1; font-weight: 800; letter-spacing: -0.5px">ALL GAMES BY <span style="color: var(--brand-text,#C8102E)">INBLACK</span></h1>
+<p style="margin: 0; font-size: {{subSize}}; color: var(--muted,#5B5B66); max-width: 540px">เติมเพชร บัตรรายเดือน และสกินลิมิเต็ดได้ในไม่กี่ขั้นตอน จ่ายผ่าน PromptPay, TrueMoney หรือบัตร แล้วติดตามสถานะได้แบบเรียลไทม์</p>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px">
+<a class="ib-p ib-btn" href="#catalog" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 24px; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700; text-decoration: none">เลือกแพ็กเกจ</a>
+<button class="ib-p ib-btn2" type="button" onClick="{{goTrack}}" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 24px; border-radius: 999px; border: 1px solid var(--border-strong,#8A8A96); background: var(--surface,#FFFFFF); color: var(--text,#16161A); font-size: 16px; font-weight: 700">ติดตามออเดอร์</button>
+</div>
+</div>
+<div style="flex: 1 1 260px; display: flex; justify-content: center">
+<svg viewBox="0 0 360 260" aria-hidden="true" style="width: 100%; max-width: {{illusW}}; height: auto; display: block">
+<circle cx="180" cy="140" r="116" fill="var(--brand-soft,#FDE8EB)"/>
+<path d="M84 94c4-15 17-22 33-22h20c9 0 13 7 10 22z" fill="var(--brand-strong,#8E0B20)"/>
+<path d="M276 94c-4-15-17-22-33-22h-20c-9 0-13 7-10 22z" fill="var(--brand-strong,#8E0B20)"/>
+<path d="M98 92h164c26 0 44 16 50 40l16 62c6 24-10 44-32 44-15 0-25-8-33-22l-10-18H107l-10 18c-8 14-18 22-33 22-22 0-38-20-32-44l16-62c6-24 24-40 50-40z" fill="var(--brand,#C8102E)"/>
+<rect x="91" y="124" width="18" height="52" rx="4" fill="#FFFFFF"/>
+<rect x="74" y="141" width="52" height="18" rx="4" fill="#FFFFFF"/>
+<circle cx="260" cy="128" r="9" fill="#FFFFFF"/>
+<circle cx="260" cy="172" r="9" fill="#FFFFFF"/>
+<circle cx="238" cy="150" r="9" fill="#FFFFFF"/>
+<circle cx="282" cy="150" r="9" fill="#FFFFFF"/>
+<circle cx="146" cy="176" r="15" fill="var(--brand-strong,#8E0B20)"/>
+<circle cx="146" cy="176" r="7" fill="#FFFFFF" opacity=".35"/>
+<circle cx="214" cy="176" r="15" fill="var(--brand-strong,#8E0B20)"/>
+<circle cx="214" cy="176" r="7" fill="#FFFFFF" opacity=".35"/>
+<rect x="164" y="116" width="32" height="8" rx="4" fill="#FFFFFF" opacity=".5"/>
+<path d="M300 38l9 11-9 13-9-13z" fill="none" stroke="var(--brand,#C8102E)" stroke-width="3" stroke-linejoin="round"/>
+<path d="M50 52l7 8-7 10-7-10z" fill="var(--brand,#C8102E)"/>
+<circle cx="324" cy="96" r="4" fill="var(--brand,#C8102E)"/>
+<circle cx="40" cy="214" r="6" fill="none" stroke="var(--brand,#C8102E)" stroke-width="3"/>
+</svg>
+</div>
+</section>
+
+<section id="catalog" aria-labelledby="catalog-title" aria-busy="{{busy}}" style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 4px 16px">
+<div>
+<h2 id="catalog-title" style="margin: 0; font-size: {{h2Size}}; font-weight: 800; line-height: 1.3">แพ็กเกจทั้งหมด</h2>
+<p style="margin: 0; font-size: 14px; color: var(--muted,#5B5B66)">ราคารวม VAT 7% แล้ว{{countText}}</p>
+</div>
+</div>
+<div role="group" aria-label="หมวดหมู่สินค้า" style="display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px; margin: -4px -2px">
+<sc-for list="{{cats}}" as="c" hint-placeholder-count="4">
+<button class="ib-p ib-chip" type="button" aria-pressed="{{c.pressed}}" onClick="{{c.pick}}" style="flex: none; height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.fg}}; font-size: 14px; font-weight: 600; white-space: nowrap">{{c.label}} ({{c.n}})</button>
+</sc-for>
+</div>
+
+<sc-if value="{{isReady}}" hint-placeholder-val="{{true}}">
+<div style="display: grid; grid-template-columns: {{gridCols}}; gap: {{gridGap}}">
+<sc-for list="{{list}}" as="p" hint-placeholder-count="4">
+<article class="ib-card" style="background: var(--surface,#FFFFFF); border-radius: 14px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow .2s, transform .2s">
+<div style="position: relative; aspect-ratio: 4 / 3; background: var(--brand-soft,#FDE8EB); display: grid; place-items: center; color: var(--brand-text,#C8102E)">
+<sc-if value="{{p.flash}}"><span style="position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; line-height: 28px; border-radius: 999px; background: #B3261E; color: #FFFFFF; font-size: 14px; font-weight: 700"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>FLASH</span></sc-if>
+<sc-if value="{{p.gem}}"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12l4 6-10 12L2 9l4-6z"/><path d="M2 9h20M9 3 7.5 9 12 21l4.5-12L15 3"/></svg></sc-if>
+<sc-if value="{{p.gems}}"><svg width="84" height="70" viewBox="0 0 48 40" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M17 8h14l5 7-12 15L12 15l5-7z"/><path d="M12 15h24M21 8l-2 7 5 15 5-15-2-7"/><path d="M4 22h7l3 4-6.5 8L1 26l3-4z"/><path d="M37 22h7l3 4-6.5 8L34 26l3-4z"/></svg></sc-if>
+<sc-if value="{{p.pass}}"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4M9 15.5l2 2 4-4"/></svg></sc-if>
+<sc-if value="{{p.skin}}"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9L11 3z"/><path d="M18.5 14.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9.9-2.1z"/></svg></sc-if>
+</div>
+<div style="padding: {{p.pad}}; display: flex; flex-direction: column; gap: 4px; flex: 1">
+<h3 style="margin: 0; font-size: 16px; font-weight: 700; line-height: 1.4">{{p.name}}</h3>
+<p style="margin: 0; font-size: 14px; color: var(--muted,#5B5B66)">{{p.th}}</p>
+<sc-if value="{{p.hasLimit}}"><p style="margin: 0; display: inline-flex; align-items: center; gap: 4px; font-size: 14px; color: var(--info,#1D4F91)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>{{p.limit}}</p></sc-if>
+<sc-if value="{{p.flash}}">
+<div style="margin-top: 4px">
+<div aria-hidden="true" style="height: 8px; border-radius: 999px; background: var(--surface-2,#F1F1F4); overflow: hidden"><div style="width: {{p.stockPct}}; height: 100%; background: #B3261E; border-radius: 999px"></div></div>
+<p style="margin: 4px 0 0; font-size: 14px; font-weight: 600; color: var(--danger,#B42318)">{{p.stockText}}</p>
+</div>
+</sc-if>
+<div style="margin-top: auto; padding-top: 8px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px">
+<span style="font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums">{{p.priceText}}</span>
+<span style="font-size: 14px; color: var(--muted,#5B5B66)">รวม VAT</span>
+</div>
+<sc-if value="{{p.flow}}" hint-placeholder-val="{{false}}"><button class="ib-p ib-btn" type="button" onClick="{{p.pick}}" aria-label="เติม {{p.name}}" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 44px; margin-top: 8px; border: 0; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700">เติมเลย</button></sc-if>
+<sc-if value="{{p.standalone}}" hint-placeholder-val="{{true}}"><a class="ib-p ib-btn" href="Checkout.dc.html" aria-label="เติม {{p.name}}" style="display: flex; align-items: center; justify-content: center; width: 100%; height: 44px; margin-top: 8px; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700; text-decoration: none">เติมเลย</a></sc-if>
+</div>
+</article>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isLoading}}" hint-placeholder-val="{{false}}">
+<div role="status" style="display: grid; grid-template-columns: {{gridCols}}; gap: {{gridGap}}">
+<span class="ib-sr">กำลังโหลดรายการสินค้า</span>
+<sc-for list="{{skels}}" as="k" hint-placeholder-count="4">
+<div style="background: var(--surface,#FFFFFF); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05)">
+<div class="ib-skel" style="aspect-ratio: 4 / 3; border-radius: 0"></div>
+<div style="padding: {{k.pad}}; display: flex; flex-direction: column; gap: 10px">
+<div class="ib-skel" style="height: 20px; width: 75%"></div>
+<div class="ib-skel" style="height: 16px; width: 50%"></div>
+<div class="ib-skel" style="height: 24px; width: 45%; margin-top: 12px"></div>
+<div class="ib-skel" style="height: 44px; border-radius: 999px"></div>
+</div>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+<div role="status" style="background: var(--surface,#FFFFFF); border: 1px dashed var(--border-strong,#8A8A96); border-radius: 20px; padding: 48px 24px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px">
+<div style="width: 64px; height: 64px; border-radius: 999px; background: var(--surface-2,#F1F1F4); display: grid; place-items: center; color: var(--muted,#5B5B66)"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8.5 11h5"/></svg></div>
+<h3 style="margin: 0; font-size: 20px; font-weight: 700">ไม่พบสินค้าที่ตรงกับ “{{q}}”</h3>
+<p style="margin: 0; font-size: 16px; color: var(--muted,#5B5B66); max-width: 440px">ลองค้นหาด้วยชื่อแพ็กเกจ เช่น Diamonds หรือ Monthly Pass หรือเลือกหมวดหมู่ด้านบน</p>
+<button class="ib-p ib-btn2" type="button" onClick="{{clearQ}}" style="height: 44px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--border-strong,#8A8A96); background: var(--surface,#FFFFFF); color: var(--text,#16161A); font-size: 16px; font-weight: 700">ล้างการค้นหา</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isError}}" hint-placeholder-val="{{false}}">
+<div role="alert" style="background: var(--danger-bg,#FDECEA); border-radius: 20px; padding: 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--danger,#B42318)" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/></svg>
+<div style="flex: 1 1 220px; min-width: 0">
+<h3 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--danger,#B42318)">โหลดรายการสินค้าไม่สำเร็จ</h3>
+<p style="margin: 4px 0 0; font-size: 16px; color: var(--text,#16161A)">ระบบเชื่อมต่อไม่ได้ชั่วคราว ออเดอร์เดิมของคุณไม่ได้รับผลกระทบ ลองใหม่อีกครั้งในอีกสักครู่</p>
+<p style="margin: 8px 0 0; font-size: 14px; color: var(--muted,#5B5B66)">รหัสอ้างอิง req_7f3a91c2 · CATALOG_UNAVAILABLE</p>
+</div>
+<button class="ib-p ib-btn" type="button" onClick="{{retry}}" style="display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>ลองใหม่</button>
+</div>
+</sc-if>
+</section>
+</main>
+
+<footer style="margin-top: 48px; background: var(--surface,#FFFFFF); border-top: 1px solid var(--border,#E1E1E7)">
+<div style="max-width: 1200px; margin: 0 auto; padding: 32px {{gut}}; display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; align-items: center; font-size: 14px; color: var(--muted,#5B5B66)">
+<span style="font-size: 16px; font-weight: 800; letter-spacing: 1px; color: var(--brand-text,#C8102E)">INBLACK</span>
+<nav aria-label="ลิงก์ส่วนท้าย" style="display: flex; flex-wrap: wrap; gap: 8px 24px"><a href="#">ติดตามออเดอร์</a><a href="#">ออเดอร์ของฉัน</a><a href="#">เงื่อนไขการให้บริการ</a><a href="#">นโยบายความเป็นส่วนตัว</a></nav>
+<span>ราคาทั้งหมดเป็นเงินบาท รวม VAT 7%</span>
+</div>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"view":{"editor":"enum","options":["ready","loading","empty","error"],"default":"ready","section":"State"},"device":{"editor":"enum","options":["auto","desktop","mobile"],"default":"auto","section":"State"},"onPick":{"editor":null},"onHome":{"editor":null},"onTrack":{"editor":null},"$preview":{"width":1366,"height":1500}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { if (this._ro) this._ro.disconnect(); }
+  fmt(s) {
+    var b = Math.floor(s / 100), t = s % 100;
+    return '฿' + String(b).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + (t < 10 ? '0' : '') + t;
+  }
+  renderVals() {
+    var self = this, p = this.props, s = this.state || {};
+    if (!this._mr) {
+      this._mr = function (el) {
+        if (self._ro) { self._ro.disconnect(); self._ro = null; }
+        if (el && typeof ResizeObserver !== 'undefined') {
+          self._ro = new ResizeObserver(function (es) {
+            var w = Math.round(es[0].contentRect.width);
+            if (w && w !== (self.state && self.state.w)) self.setState({ w: w });
+          });
+          self._ro.observe(el);
+        }
+      };
+    }
+    var dev = p.device || 'auto';
+    var w = s.w || 0;
+    var m = dev === 'mobile' || (dev === 'auto' && w > 0 && w < 720);
+    var view = p.view || 'ready';
+    var flow = typeof p.onPick === 'function';
+    var q = s.q != null ? s.q : (view === 'empty' ? 'Genshin' : '');
+    var cat = s.cat || 'all';
+    var pad = m ? '12px' : '16px';
+    var P = [
+      { sku: 'DIAMOND-1000', name: '1,000 Diamonds', th: 'เพชร 1,000 เม็ด', price: 34900, cat: 'diamond', gem: true },
+      { sku: 'DIAMOND-5000', name: '5,000 Diamonds', th: 'เพชร 5,000 เม็ด', price: 159000, cat: 'diamond', gems: true },
+      { sku: 'MONTHLY-PASS', name: 'Monthly Pass', th: 'บัตรรายเดือน', price: 17900, cat: 'pass', pass: true, hasLimit: true, limit: 'จำกัด 1 ชิ้นต่อออเดอร์' },
+      { sku: 'FLASH-SKIN-01', name: 'Limited Skin', th: 'สกินลิมิเต็ด · Flash Sale', price: 9900, cat: 'flash', skin: true, flash: true, hasLimit: true, limit: 'จำกัด 2 ชิ้นต่ออีเมล', stockPct: '37%', stockText: 'เหลือ 37 จาก 100 ชิ้น' }
+    ];
+    var ql = q.trim().toLowerCase();
+    var list = P.filter(function (x) {
+      return (cat === 'all' || x.cat === cat) && (!ql || (x.name + ' ' + x.th + ' ' + x.sku).toLowerCase().indexOf(ql) >= 0);
+    }).map(function (x) {
+      return Object.assign({ gem: false, gems: false, pass: false, skin: false, flash: false, hasLimit: false, limit: '', stockPct: '0%', stockText: '' }, x, {
+        priceText: self.fmt(x.price), pad: pad, flow: flow, standalone: !flow,
+        pick: function () { if (typeof p.onPick === 'function') p.onPick(x.sku); }
+      });
+    });
+    var defs = [['all', 'ทั้งหมด'], ['diamond', 'เพชร'], ['pass', 'บัตรรายเดือน'], ['flash', 'Flash Sale']];
+    var cats = defs.map(function (d) {
+      var on = d[0] === cat;
+      return {
+        label: d[1],
+        n: d[0] === 'all' ? P.length : P.filter(function (x) { return x.cat === d[0]; }).length,
+        pressed: on ? 'true' : 'false',
+        bg: on ? 'var(--brand,#C8102E)' : 'var(--surface,#FFFFFF)',
+        fg: on ? 'var(--on-brand,#FFFFFF)' : 'var(--text,#16161A)',
+        border: on ? 'var(--brand,#C8102E)' : 'var(--border,#E1E1E7)',
+        pick: function () { self.setState({ cat: d[0] }); }
+      };
+    });
+    var isReady = view === 'ready' && list.length > 0;
+    var isEmpty = view === 'empty' || (view === 'ready' && list.length === 0);
+    var hero = m ? 30 : Math.max(30, Math.min(54, Math.round((w || 1366) * 0.04)));
+    return {
+      measure: this._mr,
+      mobile: m, desktop: !m,
+      gut: m ? '16px' : '24px',
+      logoSize: m ? '18px' : '22px',
+      mainPad: m ? '16px 16px 0' : '32px 24px 0',
+      gapL: m ? '24px' : '40px',
+      heroPad: m ? '24px 20px' : '48px',
+      heroSize: hero + 'px',
+      subSize: m ? '16px' : '20px',
+      h2Size: m ? '20px' : '28px',
+      illusW: m ? '220px' : '380px',
+      gridCols: m ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(240px, 1fr))',
+      gridGap: m ? '12px' : '24px',
+      q: q, cats: cats, list: list,
+      countText: isReady ? ' · ' + list.length + ' รายการ' : '',
+      isReady: isReady, isEmpty: isEmpty, isLoading: view === 'loading', isError: view === 'error',
+      busy: view === 'loading' ? 'true' : 'false',
+      skels: [1, 2, 3, 4].map(function () { return { pad: pad }; }),
+      setQ: function (e) { self.setState({ q: e.target.value }); },
+      clearQ: function () { self.setState({ q: '', cat: 'all' }); },
+      noSubmit: function (e) { e.preventDefault(); },
+      retry: function () {},
+      goHome: function () { if (typeof p.onHome === 'function') p.onHome(); },
+      goTrack: function () { if (typeof p.onTrack === 'function') p.onTrack(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ชำระเงิน · InBlack Top-Up</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:var(--bg,#F5F5F7)}
+.ib,.ib *{box-sizing:border-box}
+.ib button,.ib input,.ib select,.ib textarea{font:inherit;color:inherit}
+.ib :focus-visible{outline:3px solid var(--focus,#0B57D0);outline-offset:2px}
+.ib a{color:var(--brand-text,#C8102E)}
+.ib-p{cursor:pointer;transition:background-color .15s,border-color .15s,box-shadow .15s,transform .15s}
+.ib-p:disabled{cursor:not-allowed}
+.ib-btn:hover:not(:disabled){background:var(--brand-hover,#A10C24)!important}
+.ib-btn2:hover:not(:disabled){background:var(--surface-2,#F1F1F4)!important}
+.ib-btnw:hover:not(:disabled){background:var(--brand-soft,#FDE8EB)!important}
+.ib-btnh:hover:not(:disabled){background:rgba(255,255,255,.16)!important}
+.ib-btnd:hover:not(:disabled){background:#8F1C13!important}
+.ib-chip:hover{border-color:var(--brand,#C8102E)!important}
+.ib-card:hover{box-shadow:0 6px 20px rgba(20,20,30,.08)!important;transform:translateY(-2px)}
+.ib-row:hover{background:var(--surface-2,#F1F1F4)}
+.ib-skel{background:linear-gradient(90deg,var(--surface-2,#F1F1F4),var(--border,#E1E1E7),var(--surface-2,#F1F1F4));background-size:200% 100%;animation:ibSh 1.4s ease-in-out infinite;border-radius:8px}
+.ib-spin{animation:ibSp .8s linear infinite}
+.ib-pulse{animation:ibPu 1.6s ease-in-out infinite}
+.ib-in{animation:ibIn .25s ease-out}
+.ib-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.ib-skip{position:absolute;left:-9999px;top:8px;z-index:50;background:#FFFFFF;color:#C8102E;padding:8px 16px;border-radius:8px;font-weight:700}
+.ib-skip:focus{left:16px}
+@keyframes ibSh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@keyframes ibSp{to{transform:rotate(360deg)}}
+@keyframes ibPu{50%{opacity:.35}}
+@keyframes ibIn{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.ib *{animation:none!important;transition:none!important}.ib-card:hover{transform:none}}
+</style>
+</helmet>
+<div class="ib" ref="{{measure}}" style="font-family: 'Noto Sans Thai', 'Leelawadee UI', Tahoma, system-ui, sans-serif; line-height: 1.6; color: var(--text,#16161A); background: var(--bg,#F5F5F7); position: relative; width: 100%">
+
+<header style="background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF)">
+<div style="max-width: 1200px; margin: 0 auto; padding: 0 {{gut}}; height: 64px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px">
+<div style="display: flex; align-items: center">
+<button class="ib-p ib-btnh" type="button" aria-label="เปิดเมนู" style="width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--on-brand,#FFFFFF)"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+</div>
+<button class="ib-p" type="button" onClick="{{goHome}}" aria-label="InBlack Top-Up หน้าแรก" style="display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--on-brand,#FFFFFF); padding: 6px 8px; border-radius: 8px">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12l4 6-10 12L2 9l4-6z"/><path d="M2 9h20"/></svg>
+<span style="font-size: {{logoSize}}; font-weight: 800; letter-spacing: 1px; line-height: 1">INBLACK</span>
+</button>
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px">
+<button class="ib-p ib-btnh" type="button" aria-label="ภาษาไทย สกุลเงินบาท เปลี่ยนได้" style="height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.55); background: var(--brand-strong,#8E0B20); color: var(--on-brand,#FFFFFF); font-size: 14px; font-weight: 600; white-space: nowrap">TH · ฿</button>
+<sc-if value="{{desktop}}" hint-placeholder-val="{{true}}"><button class="ib-p ib-btnw" type="button" style="height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: var(--surface,#FFFFFF); color: var(--brand-text,#C8102E); font-size: 14px; font-weight: 700; white-space: nowrap">เข้าสู่ระบบ</button></sc-if>
+<sc-if value="{{mobile}}" hint-placeholder-val="{{false}}"><button class="ib-p ib-btnh" type="button" aria-label="เข้าสู่ระบบ" style="width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 999px; background: transparent; color: var(--on-brand,#FFFFFF)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button></sc-if>
+</div>
+</div>
+</header>
+
+<main style="max-width: 1200px; margin: 0 auto; padding: {{mainPad}}">
+<div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px">
+<sc-if value="{{flow}}" hint-placeholder-val="{{false}}"><button class="ib-p ib-btn2" type="button" onClick="{{goHome}}" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 12px 0 6px; border: 0; border-radius: 999px; background: transparent; color: var(--text,#16161A); font-size: 14px; font-weight: 600"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>กลับไปเลือกสินค้า</button></sc-if>
+<sc-if value="{{standalone}}" hint-placeholder-val="{{true}}"><a class="ib-p ib-btn2" href="Home.dc.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; height: 44px; padding: 0 12px 0 6px; border-radius: 999px; color: var(--text,#16161A); font-size: 14px; font-weight: 600; text-decoration: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>กลับไปเลือกสินค้า</a></sc-if>
+<ol aria-label="ขั้นตอนการสั่งซื้อ" style="display: flex; flex-wrap: wrap; gap: 4px 16px; list-style: none; margin: 0; padding: 0; font-size: 14px; color: var(--muted,#5B5B66)">
+<li style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 22px; height: 22px; border-radius: 999px; background: var(--success-bg,#E5F5EC); color: var(--success,#0F7A3D); display: grid; place-items: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></span>เลือกสินค้า</li>
+<li aria-current="step" style="display: inline-flex; align-items: center; gap: 6px; color: var(--text,#16161A); font-weight: 700"><span style="width: 22px; height: 22px; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); display: grid; place-items: center; font-size: 14px">2</span>ชำระเงิน</li>
+<li style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 22px; height: 22px; border-radius: 999px; border: 1px solid var(--border-strong,#8A8A96); display: grid; place-items: center; font-size: 14px">3</span>ติดตามสถานะ</li>
+</ol>
+<h1 style="margin: 0; font-size: 28px; font-weight: 800; line-height: 1.3">ชำระเงิน</h1>
+</div>
+
+<sc-if value="{{isLoading}}" hint-placeholder-val="{{false}}">
+<div role="status" style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+<span class="ib-sr">กำลังโหลดข้อมูลสินค้าและราคา</span>
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+<div style="background: var(--surface,#FFFFFF); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 16px"><div class="ib-skel" style="height: 24px; width: 30%"></div><div class="ib-skel" style="height: 56px"></div><div class="ib-skel" style="height: 56px"></div><div class="ib-skel" style="height: 56px"></div></div>
+<div style="background: var(--surface,#FFFFFF); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 16px"><div class="ib-skel" style="height: 24px; width: 40%"></div><div class="ib-skel" style="height: 48px"></div><div class="ib-skel" style="height: 48px"></div></div>
+<div style="background: var(--surface,#FFFFFF); border-radius: 20px; padding: 24px; display: flex; gap: 12px; flex-wrap: wrap"><div class="ib-skel" style="height: 80px; flex: 1 1 160px"></div><div class="ib-skel" style="height: 80px; flex: 1 1 160px"></div><div class="ib-skel" style="height: 80px; flex: 1 1 160px"></div></div>
+</div>
+<div style="flex: 1 1 340px; min-width: 0; background: var(--surface,#FFFFFF); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 12px"><div class="ib-skel" style="height: 24px; width: 50%"></div><div class="ib-skel" style="height: 18px"></div><div class="ib-skel" style="height: 18px"></div><div class="ib-skel" style="height: 18px; width: 70%"></div><div class="ib-skel" style="height: 40px; width: 60%; margin-top: 8px"></div><div class="ib-skel" style="height: 48px; border-radius: 999px"></div></div>
+</div>
+</sc-if>
+
+<sc-if value="{{notLoading}}" hint-placeholder-val="{{true}}">
+<sc-if value="{{hasProblem}}" hint-placeholder-val="{{false}}">
+<div role="alert" style="margin-bottom: 16px; background: var(--danger-bg,#FDECEA); border-radius: 14px; padding: 16px; display: flex; gap: 12px; align-items: flex-start">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--danger,#B42318)" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/></svg>
+<div style="min-width: 0">
+<p style="margin: 0; font-weight: 700; color: var(--danger,#B42318)">สร้างออเดอร์ไม่สำเร็จ</p>
+<p style="margin: 2px 0 0; font-size: 16px">Limited Skin เหลือ 1 ชิ้น ไม่พอสำหรับ 2 ชิ้น ลดจำนวนแล้วลองอีกครั้ง และแก้ไขช่องที่มีข้อผิดพลาดด้านล่าง</p>
+<p style="margin: 4px 0 0; font-size: 14px; color: var(--muted,#5B5B66)">OUT_OF_STOCK · ยังไม่มีการตัดเงิน</p>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{showSummaryErr}}" hint-placeholder-val="{{false}}">
+<div role="alert" style="margin-bottom: 16px; border: 1px solid var(--danger,#B42318); background: var(--surface,#FFFFFF); border-radius: 14px; padding: 12px 16px; font-size: 16px; color: var(--danger,#B42318); font-weight: 600">กรุณาแก้ไข {{errCount}} จุดก่อนชำระเงิน</div>
+</sc-if>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section aria-labelledby="{{uid}}-items" style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); padding: {{secPad}}">
+<h2 id="{{uid}}-items" style="margin: 0 0 4px; font-size: 20px; font-weight: 700">สินค้า</h2>
+<p style="margin: 0 0 8px; font-size: 14px; color: var(--muted,#5B5B66)">ปรับจำนวนได้ ราคารวม VAT แล้ว</p>
+<sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border,#E1E1E7); opacity: {{it.opacity}}">
+<sc-if value="{{it.showTile}}"><div aria-hidden="true" style="flex: none; width: 48px; height: 48px; border-radius: 14px; background: var(--brand-soft,#FDE8EB); color: var(--brand-text,#C8102E); display: grid; place-items: center">
+<sc-if value="{{it.gem}}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h12l4 6-10 12L2 9l4-6z"/><path d="M2 9h20"/></svg></sc-if>
+<sc-if value="{{it.pass}}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></sc-if>
+<sc-if value="{{it.skin}}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9L11 3z"/></svg></sc-if>
+</div></sc-if>
+<div style="flex: 1; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-weight: 700">{{it.name}}<sc-if value="{{it.flash}}"><span style="padding: 0 8px; line-height: 22px; border-radius: 999px; background: #B3261E; color: #FFFFFF; font-size: 14px; font-weight: 700">FLASH</span></sc-if></div>
+<div style="font-size: 14px; color: var(--muted,#5B5B66)">{{it.priceText}} / ชิ้น</div>
+<sc-if value="{{it.hasNote}}"><div style="font-size: 14px; color: {{it.noteColor}}">{{it.note}}</div></sc-if>
+</div>
+<div style="display: flex; align-items: center; border: 1px solid var(--border-strong,#8A8A96); border-radius: 999px; height: 44px; flex: none">
+<button class="ib-p ib-btn2" type="button" aria-label="ลดจำนวน {{it.name}}" disabled="{{it.decDis}}" onClick="{{it.dec}}" style="width: 42px; height: 42px; border: 0; border-radius: 999px; background: transparent; display: grid; place-items: center; color: {{it.decColor}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+<span aria-live="polite" style="min-width: 28px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums">{{it.qty}}</span>
+<button class="ib-p ib-btn2" type="button" aria-label="เพิ่มจำนวน {{it.name}}" disabled="{{it.incDis}}" onClick="{{it.inc}}" style="width: 42px; height: 42px; border: 0; border-radius: 999px; background: transparent; display: grid; place-items: center; color: {{it.incColor}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+</div>
+</div>
+</sc-for>
+<sc-if value="{{showItemsErr}}" hint-placeholder-val="{{false}}"><p style="margin: 8px 0 0; display: flex; gap: 6px; font-size: 14px; color: var(--danger,#B42318)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 3px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/></svg>เลือกสินค้าอย่างน้อย 1 ชิ้น</p></sc-if>
+</section>
+
+<section aria-labelledby="{{uid}}-info" style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); padding: {{secPad}}; display: flex; flex-direction: column; gap: 16px">
+<h2 id="{{uid}}-info" style="margin: 0; font-size: 20px; font-weight: 700">ข้อมูลการเติม</h2>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="{{uid}}-email" style="font-size: 14px; font-weight: 600">อีเมลสำหรับรับใบเสร็จ</label>
+<input id="{{uid}}-email" type="email" autocomplete="email" inputmode="email" value="{{email}}" onChange="{{setEmail}}" onBlur="{{blurEmail}}" aria-invalid="{{emailInvalid}}" aria-describedby="{{uid}}-email-d" aria-required="true" style="height: 48px; padding: 0 14px; border-radius: 8px; border: 1px solid {{emailBc}}; box-shadow: {{emailSh}}; background: var(--surface,#FFFFFF); font-size: 16px; width: 100%; color: var(--text,#16161A)">
+<sc-if value="{{showEmailErr}}" hint-placeholder-val="{{false}}"><p id="{{uid}}-email-d" style="margin: 0; display: flex; gap: 6px; font-size: 14px; color: var(--danger,#B42318)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 3px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/></svg>{{emailErr}}</p></sc-if>
+<sc-if value="{{hideEmailErr}}" hint-placeholder-val="{{true}}"><p id="{{uid}}-email-d" style="margin: 0; font-size: 14px; color: var(--muted,#5B5B66)">ส่งใบเสร็จและลิงก์ติดตามออเดอร์ไปที่อีเมลนี้</p></sc-if>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="{{uid}}-gid" style="font-size: 14px; font-weight: 600">Game UID</label>
+<input id="{{uid}}-gid" type="text" autocomplete="off" spellcheck="false" autocapitalize="none" value="{{gid}}" onChange="{{setGid}}" onBlur="{{blurGid}}" aria-invalid="{{gidInvalid}}" aria-describedby="{{uid}}-gid-d" aria-required="true" style="height: 48px; padding: 0 14px; border-radius: 8px; border: 1px solid {{gidBc}}; box-shadow: {{gidSh}}; background: var(--surface,#FFFFFF); font-size: 16px; width: 100%; color: var(--text,#16161A); font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace">
+<sc-if value="{{showGidErr}}" hint-placeholder-val="{{false}}"><p id="{{uid}}-gid-d" style="margin: 0; display: flex; gap: 6px; font-size: 14px; color: var(--danger,#B42318)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 3px"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/></svg>{{gidErr}}</p></sc-if>
+<sc-if value="{{hideGidErr}}" hint-placeholder-val="{{true}}"><p id="{{uid}}-gid-d" style="margin: 0; font-size: 14px; color: var(--muted,#5B5B66)">4–32 ตัว: ตัวอักษรอังกฤษ ตัวเลข - หรือ _ ดูได้ในหน้าโปรไฟล์ของเกม</p></sc-if>
+</div>
+</section>
+
+<section style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); padding: {{secPad}}">
+<fieldset style="border: 0; margin: 0; padding: 0; min-width: 0">
+<legend style="padding: 0; margin-bottom: 12px; font-size: 20px; font-weight: 700">วิธีชำระเงิน</legend>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
+<sc-for list="{{methods}}" as="pm" hint-placeholder-count="3">
+<label class="ib-p" style="display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-radius: 14px; border: 2px solid {{pm.bc}}; background: {{pm.bg}}">
+<input type="radio" name="{{uid}}-pm" value="{{pm.id}}" checked="{{pm.checked}}" onChange="{{pm.pick}}" style="width: 20px; height: 20px; margin: 3px 0 0; flex: none; accent-color: #C8102E">
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<span style="display: flex; align-items: center; gap: 8px; font-weight: 700">
+<sc-if value="{{pm.qr}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 20h1M17 20h.5M20 14v3"/></svg></sc-if>
+<sc-if value="{{pm.wallet}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h13v2"/><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="16.5" cy="13.5" r="1.5"/></svg></sc-if>
+<sc-if value="{{pm.card}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M2.5 10h19M6 15h4"/></svg></sc-if>
+{{pm.label}}</span>
+<span style="font-size: 14px; color: {{pm.feeColor}}">{{pm.feeText}}</span>
+</span>
+</label>
+</sc-for>
+</div>
+</fieldset>
+</section>
+
+<section aria-labelledby="{{uid}}-v" style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 1px 2px rgba(20,20,30,.06), 0 1px 3px rgba(20,20,30,.05); padding: {{secPad}}; display: flex; flex-direction: column; gap: 8px">
+<h2 id="{{uid}}-v" style="margin: 0; font-size: 20px; font-weight: 700"><label for="{{uid}}-vin">โค้ดส่วนลด</label></h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<input id="{{uid}}-vin" type="text" autocomplete="off" spellcheck="false" value="{{vIn}}" onChange="{{setVIn}}" placeholder="เช่น SAVE10" aria-invalid="{{vInvalid}}" aria-describedby="{{uid}}-v-d" style="flex: 1 1 180px; min-width: 0; height: 48px; padding: 0 14px; border-radius: 8px; border: 1px solid {{vBc}}; box-shadow: {{vSh}}; background: var(--surface,#FFFFFF); font-size: 16px; text-transform: uppercase; color: var(--text,#16161A)">
+<sc-if value="{{noVoucher}}" hint-placeholder-val="{{true}}"><button class="ib-p ib-btn2" type="button" onClick="{{applyV}}" style="flex: none; height: 48px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--border-strong,#8A8A96); background: var(--surface,#FFFFFF); color: var(--text,#16161A); font-size: 16px; font-weight: 700">ใช้โค้ด</button></sc-if>
+<sc-if value="{{hasVoucher}}" hint-placeholder-val="{{false}}"><button class="ib-p ib-btn2" type="button" onClick="{{removeV}}" style="flex: none; height: 48px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--border-strong,#8A8A96); background: var(--surface,#FFFFFF); color: var(--text,#16161A); font-size: 16px; font-weight: 700">นำออก</button></sc-if>
+</div>
+<p id="{{uid}}-v-d" style="margin: 0; display: flex; gap: 6px; font-size: 14px; color: {{vMsgColor}}">{{vMsg}}</p>
+</section>
+</div>
+
+<aside aria-labelledby="{{uid}}-sum" style="flex: 1 1 340px; min-width: 0; position: {{asidePos}}; top: 16px">
+<section style="background: var(--surface,#FFFFFF); border-radius: 20px; box-shadow: 0 6px 20px rgba(20,20,30,.08); padding: {{secPad}}; display: flex; flex-direction: column; gap: 12px">
+<h2 id="{{uid}}-sum" style="margin: 0; font-size: 20px; font-weight: 700">สรุปคำสั่งซื้อ</h2>
+<sc-if value="{{hasItems}}" hint-placeholder-val="{{true}}">
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 16px">
+<sc-for list="{{lines}}" as="ln" hint-placeholder-count="1"><li style="display: flex; justify-content: space-between; gap: 12px"><span style="min-width: 0">{{ln.name}} × {{ln.qty}}</span><span style="font-variant-numeric: tabular-nums">{{ln.total}}</span></li></sc-for>
+</ul>
+<dl style="margin: 0; padding-top: 12px; border-top: 1px solid var(--border,#E1E1E7); display: flex; flex-direction: column; gap: 6px; font-size: 16px">
+<div style="display: flex; justify-content: space-between; gap: 12px"><dt style="color: var(--muted,#5B5B66)">ยอดสินค้า</dt><dd style="margin: 0; font-variant-numeric: tabular-nums">{{subText}}</dd></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><dt style="color: var(--muted,#5B5B66)">ส่วนลด{{discLabel}}</dt><dd style="margin: 0; font-variant-numeric: tabular-nums; color: {{discColor}}">{{discText}}</dd></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><dt style="color: var(--muted,#5B5B66)">ค่าธรรมเนียม ({{feeLabel}})</dt><dd style="margin: 0; font-variant-numeric: tabular-nums">{{feeText}}</dd></div>
+</dl>
+<div aria-live="polite" style="padding-top: 12px; border-top: 1px solid var(--border,#E1E1E7)">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><span style="font-size: 16px; font-weight: 700">ยอดชำระ</span><span style="font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums">{{totalText}}</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px; font-size: 14px; color: var(--muted,#5B5B66)"><span>รวม VAT 7% แล้ว</span><span style="font-variant-numeric: tabular-nums">{{vatText}}</span></div>
+</div>
+</sc-if>
+<sc-if value="{{noItems}}" hint-placeholder-val="{{false}}">
+<div role="status" style="text-align: center; padding: 16px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted,#5B5B66)">
+<div style="width: 56px; height: 56px; border-radius: 999px; background: var(--surface-2,#F1F1F4); display: grid; place-items: center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg></div>
+<p style="margin: 0; font-weight: 700; color: var(--text,#16161A)">ยังไม่มีสินค้าในรายการ</p>
+<p style="margin: 0; font-size: 14px">เพิ่มจำนวนสินค้าด้านซ้ายเพื่อดูราคา ยอดชำระ ฿0.00</p>
+</div>
+</sc-if>
+<sc-if value="{{desktop}}" hint-placeholder-val="{{true}}">
+<sc-if value="{{payLink}}" hint-placeholder-val="{{false}}"><a class="ib-p ib-btn" href="Pay.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700; text-decoration: none">{{payLabel}}</a></sc-if>
+<sc-if value="{{payBtn}}" hint-placeholder-val="{{true}}"><button class="ib-p ib-btn" type="button" onClick="{{pay}}" disabled="{{payDis}}" aria-busy="{{busyAttr}}" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; border: 0; border-radius: 999px; background: {{payBg}}; color: {{payFg}}; font-size: 16px; font-weight: 700"><sc-if value="{{busy}}"><svg class="ib-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg></sc-if>{{payLabel}}</button></sc-if>
+</sc-if>
+<p style="margin: 0; display: flex; gap: 6px; font-size: 14px; color: var(--muted,#5B5B66)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 3px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>ออเดอร์จะหมดอายุหากไม่ชำระภายใน 15 นาที</p>
+</section>
+</aside>
+</div>
+</sc-if>
+</main>
+
+<sc-if value="{{mobileBar}}" hint-placeholder-val="{{false}}">
+<div style="position: sticky; bottom: 0; z-index: 5; margin-top: 24px; background: var(--surface,#FFFFFF); border-top: 1px solid var(--border,#E1E1E7); box-shadow: 0 -6px 20px rgba(20,20,30,.08); padding: 12px 16px; display: flex; align-items: center; gap: 12px">
+<div style="flex: 1; min-width: 0"><div style="font-size: 14px; color: var(--muted,#5B5B66)">ยอดชำระ</div><div style="font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums">{{totalText}}</div></div>
+<sc-if value="{{payLink}}" hint-placeholder-val="{{false}}"><a class="ib-p ib-btn" href="Pay.dc.html" style="display: flex; align-items: center; justify-content: center; height: 48px; padding: 0 24px; border-radius: 999px; background: var(--brand,#C8102E); color: var(--on-brand,#FFFFFF); font-size: 16px; font-weight: 700; text-decoration: none">ชำระเงิน</a></sc-if>
+<sc-if value="{{payBtn}}" hint-placeholder-val="{{true}}"><button class="ib-p ib-btn" type="button" onClick="{{pay}}" disabled="{{payDis}}" aria-busy="{{busyAttr}}" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 48px; padding: 0 24px; border: 0; border-radius: 999px; background: {{payBg}}; color: {{payFg}}; font-size: 16px; font-weight: 700"><sc-if value="{{busy}}"><svg class="ib-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg></sc-if>{{payShort}}</button></sc-if>
+</div>
+</sc-if>
+<div style="height: {{bottomSpace}}"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"view":{"editor":"enum","options":["ready","loading","empty","error"],"default":"ready","section":"State"},"device":{"editor":"enum","options":["auto","desktop","mobile"],"default":"auto","section":"State"},"sku":{"editor":null},"onSubmit":{"editor":null},"onHome":{"editor":null},"$preview":{"width":1366,"height":1450}}'>
+class Component extends DCLogic {
+  componentWillUnmount() { if (this._ro) this._ro.disconnect(); if (this._t) clearTimeout(this._t); }
+  fmt(s) {
+    var neg = s < 0; if (neg) s = -s;
+    var b = Math.floor(s / 100), t = s % 100;
+    return (neg ? '−' : '') + '฿' + String(b).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + (t < 10 ? '0' : '') + t;
+  }
+  defaults() {
+    var p = this.props, view = p.view || 'ready';
+    var flow = typeof p.onSubmit === 'function';
+    if (view === 'empty') return { qty: {}, email: '', gid: '', method: 'promptpay', vIn: '', vCode: '', vErr: '' };
+    if (view === 'error') return { qty: { 'DIAMOND-1000': 1, 'FLASH-SKIN-01': 2 }, email: 'somchai@mail', gid: 'ab', method: 'truemoney', vIn: 'SAVE10', vCode: '', vErr: 'โค้ด SAVE10 ถูกใช้ครบ 10 สิทธิ์แล้ว (VOUCHER_EXHAUSTED)', submitted: true };
+    if (flow) { var q = {}; q[p.sku || 'DIAMOND-1000'] = 1; return { qty: q, email: 'somchai@example.com', gid: 'BlackFox_221', method: 'promptpay', vIn: '', vCode: '', vErr: '' }; }
+    return { qty: { 'DIAMOND-1000': 2 }, email: 'somchai@example.com', gid: 'BlackFox_221', method: 'card', vIn: 'SAVE10', vCode: 'SAVE10', vErr: '' };
+  }
+  renderVals() {
+    var self = this, p = this.props;
+    if (!this._mr) {
+      this._mr = function (el) {
+        if (self._ro) { self._ro.disconnect(); self._ro = null; }
+        if (el && typeof ResizeObserver !== 'undefined') {
+          self._ro = new ResizeObserver(function (es) { var w = Math.round(es[0].contentRect.width); if (w && w !== (self.state && self.state.w)) self.setState({ w: w }); });
+          self._ro.observe(el);
+        }
+      };
+      this._uid = 'co' + Math.random().toString(36).slice(2, 7);
+    }
+    var s = Object.assign({ touched: {}, submitted: false, busy: false }, this.defaults(), this.state || {});
+    var dev = p.device || 'auto', w = s.w || 0;
+    var m = dev === 'mobile' || (dev === 'auto' && w > 0 && w < 720);
+    var view = p.view || 'ready';
+    var flow = typeof p.onSubmit === 'function';
+    var P = [
+      { sku: 'DIAMOND-1000', name: '1,000 Diamonds', price: 34900, max: 99, gem: true },
+      { sku: 'DIAMOND-5000', name: '5,000 Diamonds', price: 159000, max: 99, gem: true },
+      { sku: 'MONTHLY-PASS', name: 'Monthly Pass', price: 17900, max: 1, pass: true, cap: 'สูงสุด 1 ชิ้นต่อออเดอร์' },
+      { sku: 'FLASH-SKIN-01', name: 'Limited Skin', price: 9900, max: 2, skin: true, flash: true, cap: 'สูงสุด 2 ชิ้นต่ออีเมล · เหลือ 37 ชิ้น' }
+    ];
+    var qty = s.qty;
+    var setQty = function (sku, n) { var q = Object.assign({}, self.state && self.state.qty ? self.state.qty : qty); q[sku] = n; self.setState({ qty: q }); };
+    var sub = 0, count = 0, lines = [];
+    var items = P.map(function (x) {
+      var n = qty[x.sku] || 0;
+      sub += x.price * n; count += n;
+      if (n > 0) lines.push({ name: x.name, qty: n, total: self.fmt(x.price * n) });
+      var stockErr = view === 'error' && x.flash;
+      var note = stockErr ? 'เหลือ 1 ชิ้น ไม่พอสำหรับจำนวนนี้' : (x.cap || '');
+      return {
+        name: x.name, qty: n, priceText: self.fmt(x.price), gem: !!x.gem, pass: !!x.pass, skin: !!x.skin, flash: !!x.flash,
+        showTile: !m, hasNote: !!note, note: note,
+        noteColor: stockErr ? 'var(--danger,#B42318)' : (n >= x.max ? 'var(--warning,#8A5A00)' : 'var(--muted,#5B5B66)'),
+        opacity: n > 0 ? '1' : '0.72',
+        decDis: n <= 0, incDis: n >= x.max,
+        decColor: n <= 0 ? 'var(--border-strong,#8A8A96)' : 'var(--text,#16161A)',
+        incColor: n >= x.max ? 'var(--border-strong,#8A8A96)' : 'var(--text,#16161A)',
+        dec: function () { if (n > 0) setQty(x.sku, n - 1); },
+        inc: function () { if (n < x.max) setQty(x.sku, n + 1); }
+      };
+    });
+    var V = { SAVE10: { min: 20000 }, FLAT20: { min: 10000 } };
+    var disc = 0, vMsg = 'ลองใช้ SAVE10 (ลด 10% สูงสุด ฿50.00) หรือ FLAT20 (ลด ฿20.00)', vMsgColor = 'var(--muted,#5B5B66)';
+    if (s.vCode) {
+      if (sub >= V[s.vCode].min) {
+        disc = s.vCode === 'SAVE10' ? Math.min(Math.floor(sub * 10 / 100), 5000) : 2000;
+        if (disc > sub) disc = sub;
+        vMsg = 'ใช้โค้ด ' + s.vCode + ' แล้ว ลด ' + this.fmt(disc); vMsgColor = 'var(--success,#0F7A3D)';
+      } else {
+        vMsg = 'ยอดสินค้ายังไม่ถึงขั้นต่ำ ' + this.fmt(V[s.vCode].min) + ' โค้ดจึงยังไม่ถูกใช้'; vMsgColor = 'var(--warning,#8A5A00)';
+      }
+    } else if (s.vErr) { vMsg = s.vErr; vMsgColor = 'var(--danger,#B42318)'; }
+    var net = sub - disc;
+    var fee = 0;
+    if (count > 0) {
+      if (s.method === 'truemoney') fee = Math.floor((net * 15 + 999) / 1000);
+      else if (s.method === 'card') fee = Math.floor((net * 29 + 999) / 1000) + 300;
+    }
+    var total = net + fee;
+    var vat = total - Math.floor((total * 200 + 107) / 214);
+    var emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email.trim());
+    var gidOk = /^[A-Za-z0-9_-]{4,32}$/.test(s.gid);
+    var emailErr = emailOk ? '' : (s.email ? 'รูปแบบอีเมลไม่ถูกต้อง เช่น name@example.com' : 'กรอกอีเมลเพื่อรับใบเสร็จและติดตามออเดอร์');
+    var gidErr = gidOk ? '' : (s.gid ? 'Game UID ต้องยาว 4–32 ตัว ใช้ได้เฉพาะ A–Z, a–z, 0–9, - และ _' : 'กรอก Game UID ของบัญชีที่จะเติม');
+    var showEmailErr = !!emailErr && (s.submitted || s.touched.email);
+    var showGidErr = !!gidErr && (s.submitted || s.touched.gid);
+    var showItemsErr = count === 0 && s.submitted;
+    var errCount = (emailErr ? 1 : 0) + (gidErr ? 1 : 0) + (count === 0 ? 1 : 0);
+    var valid = errCount === 0;
+    var labels = { promptpay: 'PromptPay', truemoney: 'TrueMoney', card: 'บัตรเครดิต/เดบิต' };
+    var feeLabels = { promptpay: 'PromptPay', truemoney: 'TrueMoney 1.5%', card: 'บัตร 2.9% + ฿3.00' };
+    var methods = [
+      { id: 'promptpay', label: 'PromptPay', feeText: 'ไม่มีค่าธรรมเนียม', qr: true },
+      { id: 'truemoney', label: 'TrueMoney', feeText: 'ค่าธรรมเนียม 1.5%', wallet: true },
+      { id: 'card', label: 'บัตรเครดิต/เดบิต', feeText: 'ค่าธรรมเนียม 2.9% + ฿3.00', card: true }
+    ].map(function (x) {
+      var on = s.method === x.id;
+      return Object.assign({ qr: false, wallet: false, card: false }, x, {
+        checked: on,
+        bc: on ? 'var(--brand,#C8102E)' : 'var(--border,#E1E1E7)',
+        bg: on ? 'var(--brand-soft,#FDE8EB)' : 'var(--surface,#FFFFFF)',
+        feeColor: x.id === 'promptpay' ? 'var(--success,#0F7A3D)' : 'var(--muted,#5B5B66)',
+        pick: function () { self.setState({ method: x.id }); }
+      });
+    });
+    var errBc = 'var(--danger,#B42318)', okBc = 'var(--border-strong,#8A8A96)';
+    var errSh = 'inset 0 0 0 1px var(--danger,#B42318)';
+    var payLabel = s.busy ? 'กำลังสร้างออเดอร์…' : (count > 0 ? 'ชำระเงิน ' + this.fmt(total) : 'เลือกสินค้าก่อนชำระเงิน');
+    var payDis = count === 0 || s.busy;
+    var payLink = !flow && valid && view !== 'error';
+    var order = {
+      items: lines, email: s.email.trim(), gid: s.gid, method: s.method, methodLabel: labels[s.method],
+      voucher: disc > 0 ? s.vCode : '', subtotal: sub, discount: disc, fee: fee, total: total, vat: vat
+    };
+    return {
+      measure: this._mr, uid: this._uid, mobile: m, desktop: !m, flow: flow, standalone: !flow,
+      gut: m ? '16px' : '24px', logoSize: m ? '18px' : '22px',
+      mainPad: m ? '16px 16px 0' : '24px 24px 48px', secPad: m ? '16px' : '24px',
+      asidePos: m ? 'static' : 'sticky',
+      isLoading: view === 'loading', notLoading: view !== 'loading',
+      hasProblem: view === 'error',
+      showSummaryErr: s.submitted && !valid, errCount: errCount,
+      items: items, showItemsErr: showItemsErr,
+      email: s.email, gid: s.gid,
+      emailInvalid: showEmailErr ? 'true' : 'false', gidInvalid: showGidErr ? 'true' : 'false',
+      showEmailErr: showEmailErr, hideEmailErr: !showEmailErr, emailErr: emailErr,
+      showGidErr: showGidErr, hideGidErr: !showGidErr, gidErr: gidErr,
+      emailBc: showEmailErr ? errBc : okBc, emailSh: showEmailErr ? errSh : 'none',
+      gidBc: showGidErr ? errBc : okBc, gidSh: showGidErr ? errSh : 'none',
+      methods: methods,
+      vIn: s.vIn, vMsg: vMsg, vMsgColor: vMsgColor,
+      vInvalid: s.vErr && !s.vCode ? 'true' : 'false',
+      vBc: s.vErr && !s.vCode ? errBc : okBc, vSh: s.vErr && !s.vCode ? errSh : 'none',
+      hasVoucher: !!s.vCode, noVoucher: !s.vCode,
+      hasItems: count > 0, noItems: count === 0, lines: lines,
+      subText: this.fmt(sub),
+      discLabel: disc > 0 ? ' (' + s.vCode + ')' : '',
+      discText: disc > 0 ? this.fmt(-disc) : '฿0.00',
+      discColor: disc > 0 ? 'var(--success,#0F7A3D)' : 'var(--text,#16161A)',
+      feeLabel: feeLabels[s.method], feeText: this.fmt(fee),
+      totalText: this.fmt(total), vatText: this.fmt(vat),
+      payLabel: payLabel, payShort: s.busy ? 'กำลังสร้าง…' : 'ชำระเงิน',
+      payLink: payLink, payBtn: !payLink, payDis: payDis,
+      payBg: payDis && !s.busy ? 'var(--surface-2,#F1F1F4)' : 'var(--brand,#C8102E)',
+      payFg: payDis && !s.busy ? 'var(--muted,#5B5B66)' : 'var(--on-brand,#FFFFFF)',
+      busy: s.busy, busyAttr: s.busy ? 'true' : 'false',
+      mobileBar: m && view !== 'loading', bottomSpace: m ? '0px' : '48px',
+      setEmail: function (e) { self.setState({ email: e.target.value }); },
+      setGid: function (e) { self.setState({ gid: e.target.value }); },
+      blurEmail: function () { self.setState({ touched: Object.assign({}, s.touched, { email: true }) }); },
+      blurGid: function () { self.setState({ touched: Object.assign({}, s.touched, { gid: true }) }); },
+      setVIn: function (e) { self.setState({ vIn: e.target.value, vErr: '' }); },
+      applyV: function () {
+        var code = (s.vIn || '').trim().toUpperCase();
+        if (!code) return self.setState({ vErr: 'กรอกโค้ดส่วนลดก่อนกดใช้' });
+        if (!V[code]) return self.setState({ vErr: 'ไม่พบโค้ดนี้ หรือโค้ดหมดอายุแล้ว' });
+        if (sub < V[code].min) return self.setState({ vErr: 'โค้ด ' + code + ' ใช้ได้เมื่อยอดสินค้าตั้งแต่ ' + self.fmt(V[code].min) });
+        self.setState({ vCode: code, vIn: code, vErr: '' });
+      },
+      removeV: function () { self.setState({ vCode: '', vIn: '', vErr: '' }); },
+      pay: function () {
+        if (!valid || view === 'error') { self.setState({ submitted: true }); return; }
+        if (!flow) return;
+        self.setState({ busy: true });
+        self._t = setTimeout(function () { p.onSubmit(order); }, 700);
+      },
+      goHome: function () { if (typeof p.onHome === 'function') p.onHome(); }
+    };
+  }
+}
+</script>
+</body>
+</html>

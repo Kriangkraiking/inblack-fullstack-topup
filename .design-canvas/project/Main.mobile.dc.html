@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>InBlack Top-Up · Prototype mobile</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0;background:#F5F5F7}
+</style>
+</helmet>
+<div style="width: 360px; height: 1900px; overflow-y: auto; overflow-x: hidden; background: #F5F5F7; transform: translateZ(0); font-family: 'Noto Sans Thai', 'Leelawadee UI', Tahoma, system-ui, sans-serif; color: #16161A">
+<dc-import name="Main" device="mobile" hint-size="360px,1900px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":360,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
