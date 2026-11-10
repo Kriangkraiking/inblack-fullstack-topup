@@ -1,7 +1,7 @@
 /**
  * Money helpers for the browser. Every amount is an integer number of satang;
  * these functions only turn it into text or read text into satang. No division
- * that can leave a fraction, no parseFloat.
+ * that can leave a fraction, and no floating-point parsing.
  */
 
 const bahtFormatter = new Intl.NumberFormat("th-TH", { maximumFractionDigits: 0 });
