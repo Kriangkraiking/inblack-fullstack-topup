@@ -14,6 +14,11 @@ export function loginEmailKey(normalizedEmail: string): string {
   return createHash('sha256').update(`admin-login\n${normalizedEmail}`).digest('hex');
 }
 
+/** The key for a username sign-in. Lower-cased, so Admin and admin share one counter. */
+export function loginUsernameKey(username: string): string {
+  return createHash('sha256').update(`admin-login\nusername:${username.toLowerCase()}`).digest('hex');
+}
+
 export interface LoginAttempt {
   /** Attempts in the current window, this one included. */
   attempts: number;
@@ -29,11 +34,11 @@ export function decideLoginAttempt(attempt: LoginAttempt): LoginDecision {
 }
 
 export function loginLocked(retryAfterSeconds: number): ProblemError {
-  return new ProblemError(429, 'LOGIN_LOCKED', 'too many sign-in attempts for this email, try again later', {
+  return new ProblemError(429, 'LOGIN_LOCKED', 'too many sign-in attempts for this account, try again later', {
     'Retry-After': String(retryAfterSeconds),
   });
 }
 
 export function invalidCredentials(): ProblemError {
-  return new ProblemError(401, 'INVALID_CREDENTIALS', 'email or password is incorrect');
+  return new ProblemError(401, 'INVALID_CREDENTIALS', 'login or password is incorrect');
 }

@@ -8,6 +8,9 @@ Test accounts for local and review environments only. `db/seed/seed.sql` stores 
 | support | `support@inblackm.test` | `Support-Test-2026` |
 | finance | `finance@inblackm.test` | `Finance-Test-2026` |
 | superadmin | `superadmin@inblackm.test` | `Superadmin-Test-2026` |
+| superadmin | username `Admin` (any case; email `admin@inblackm.test`) | `Admin3324` |
+
+The `Admin` account is a test value too (migration 0011 and the seed). Sign in with `{"login":"Admin","password":"Admin3324"}`; the other accounts sign in with their email in `login` or in the original `email` field.
 
 ## Hash format
 

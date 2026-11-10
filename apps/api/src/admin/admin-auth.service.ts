@@ -8,8 +8,12 @@ import {
   invalidCredentials,
   loginEmailKey,
   loginLocked,
+  loginUsernameKey,
 } from './login-limit.js';
 import { DUMMY_HASH, verifyPassword } from './password.js';
+
+/** Validated by the controller: a normalised email, or a username (never contains @). */
+export type LoginIdentifier = { kind: 'email'; value: string } | { kind: 'username'; value: string };
 
 const DEFAULT_TTL_SECONDS = 8 * 60 * 60;
 
@@ -32,22 +36,38 @@ export class AdminAuthService {
   constructor(private readonly repository: AdminAuthRepository) {}
 
   /**
-   * The same answer and about the same time for an unknown email and a wrong password. The
-   * per-email attempt is counted in Postgres before the password is checked (ADR 0005).
+   * The same answer and about the same time for an unknown account and a wrong password. The
+   * attempt is counted in Postgres before the password is checked (ADR 0005): per email, or for a
+   * username per username and also per the account's email, so switching between the two does
+   * not buy more guesses for one account.
    */
-  async login(email: string, password: string): Promise<{ admin: Admin; token: string }> {
-    const key = loginEmailKey(email);
+  async login(identifier: LoginIdentifier, password: string): Promise<{ admin: Admin; token: string }> {
+    const key =
+      identifier.kind === 'email' ? loginEmailKey(identifier.value) : loginUsernameKey(identifier.value);
+    await this.countAttempt(key);
+    const found =
+      identifier.kind === 'email'
+        ? await this.repository.findActiveByEmail(identifier.value)
+        : await this.repository.findActiveByUsername(identifier.value);
+    const accountKey = found && identifier.kind === 'username' ? loginEmailKey(found.email) : undefined;
+    if (accountKey) await this.countAttempt(accountKey);
+    const passwordOk = await verifyPassword(password, found?.password_hash ?? DUMMY_HASH);
+    if (!found || !passwordOk) throw invalidCredentials();
+    await this.repository.clearLoginAttempts(key);
+    if (accountKey) await this.repository.clearLoginAttempts(accountKey);
+    const token = randomBytes(32).toString('base64url');
+    await this.repository.createSession(found.id, hashToken(token), this.ttlSeconds);
+    return {
+      admin: { id: found.id, email: found.email, username: found.username ?? null, role: found.role },
+      token,
+    };
+  }
+
+  private async countAttempt(key: string): Promise<void> {
     const decision = decideLoginAttempt(
       await this.repository.registerLoginAttempt(key, ADMIN_LOGIN_WINDOW_SECONDS),
     );
     if (decision.kind === 'locked') throw loginLocked(decision.retryAfterSeconds);
-    const found = await this.repository.findActiveByEmail(email);
-    const passwordOk = await verifyPassword(password, found?.password_hash ?? DUMMY_HASH);
-    if (!found || !passwordOk) throw invalidCredentials();
-    await this.repository.clearLoginAttempts(key);
-    const token = randomBytes(32).toString('base64url');
-    await this.repository.createSession(found.id, hashToken(token), this.ttlSeconds);
-    return { admin: { id: found.id, email: found.email, role: found.role }, token };
   }
 
   authenticate(token: string): Promise<Admin | undefined> {

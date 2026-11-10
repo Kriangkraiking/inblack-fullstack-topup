@@ -21,3 +21,9 @@ INSERT INTO admin_users (email, password_hash, role) VALUES
   ('finance@inblackm.test', 'scrypt$16384$8$1$c/yd+t0MqtKhYifywJB/VQ==$bg9ey0185M0U+kWSwOXUOb7k60gA8T14UyG8xxAl9Uw=', 'finance'),
   ('superadmin@inblackm.test', 'scrypt$16384$8$1$rs++AqSL9Mu3d47DR1mELQ==$G0cVX3DtcHQrf8EYqm7X8I2J4jGp+0eGFneTMLXKEZQ=', 'superadmin')
 ON CONFLICT (email) DO NOTHING;
+
+-- Sign-in by username (migration 0011 adds the column and inserts the same row). Repeated here so
+-- a test reset brings it back. ON CONFLICT without a target also covers the username index.
+INSERT INTO admin_users (email, username, password_hash, role) VALUES
+  ('admin@inblackm.test', 'Admin', 'scrypt$16384$8$1$uEdjqmeOQjC26Dsycg97yg==$MQfupWOMcg760C6QreMESitYaQLhC5s8N8EPYzcYzH4=', 'superadmin')
+ON CONFLICT DO NOTHING;

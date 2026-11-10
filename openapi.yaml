@@ -677,6 +677,11 @@ paths:
         (Postgres, holds with Redis down, `LOGIN_LOCKED`). Unknown emails are counted and locked
         the same way, so neither 401 nor 429 reveals whether an admin exists. A successful login
         clears the email's count. Only `application/json` bodies are accepted.
+
+        `login` takes an email (any value containing `@`) or a username (`^[A-Za-z0-9._-]{1,64}$`,
+        compared case-insensitively). The original `email` field still works; send one of the two
+        (`login` wins when both are present). A username is counted under its own 5-per-15-minute
+        key and, when it belongs to an account, under that account's email key as well (ADR 0005).
       operationId: adminLogin
       requestBody:
         required: true
@@ -684,10 +689,17 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [password]
+              anyOf:
+                - required: [login]
+                - required: [email]
               properties:
+                login: { type: string, maxLength: 254, description: Email or username }
                 email: { type: string, format: email, maxLength: 254 }
                 password: { type: string, minLength: 1, maxLength: 256 }
+            examples:
+              username: { value: { login: Admin, password: Admin3324 } }
+              email: { value: { email: viewer@inblackm.test, password: Viewer-Test-2026 } }
       responses:
         '200':
           description: Logged in.
@@ -699,7 +711,7 @@ paths:
               schema: { $ref: '#/components/schemas/AdminIdentity' }
         '400': { $ref: '#/components/responses/ClientProblem' }
         '401':
-          description: '`INVALID_CREDENTIALS`, the same for an unknown email and a wrong password'
+          description: '`INVALID_CREDENTIALS`, the same bytes for an unknown email, an unknown username and a wrong password'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1119,9 +1131,10 @@ components:
 
     AdminIdentity:
       type: object
-      required: [email, role]
+      required: [email, username, role]
       properties:
         email: { type: string }
+        username: { type: [string, 'null'], description: null for accounts without a username }
         role: { type: string, enum: [viewer, support, finance, superadmin] }
 
     PaymentEvent:

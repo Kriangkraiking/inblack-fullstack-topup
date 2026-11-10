@@ -9,6 +9,8 @@ export interface Admin {
   id: string;
   email: string;
   role: AdminRole;
+  /** Set for accounts that may sign in by username (migration 0011). */
+  username?: string | null;
 }
 
 export type AdminRequest = Request & { admin?: Admin };

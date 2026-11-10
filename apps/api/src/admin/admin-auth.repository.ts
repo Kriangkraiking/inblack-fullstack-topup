@@ -24,8 +24,17 @@ export class AdminAuthRepository {
 
   async findActiveByEmail(email: string): Promise<AdminWithHash | undefined> {
     const { rows } = await this.db.query<AdminWithHash>(
-      'SELECT id, email, role, password_hash FROM admin_users WHERE email = $1 AND active',
+      'SELECT id, email, username, role, password_hash FROM admin_users WHERE email = $1 AND active',
       [email],
+    );
+    return rows[0];
+  }
+
+  /** Case-insensitive, matching the unique index on lower(username). */
+  async findActiveByUsername(username: string): Promise<AdminWithHash | undefined> {
+    const { rows } = await this.db.query<AdminWithHash>(
+      'SELECT id, email, username, role, password_hash FROM admin_users WHERE lower(username) = lower($1) AND active',
+      [username],
     );
     return rows[0];
   }
@@ -58,8 +67,8 @@ export class AdminAuthRepository {
 
   /** Reads active on every request, so disabling an admin ends their sessions at once. */
   async findSessionAdmin(tokenHash: string): Promise<Admin | undefined> {
-    const { rows } = await this.db.query<{ id: string; email: string; role: AdminRole }>(
-      `SELECT a.id, a.email, a.role
+    const { rows } = await this.db.query<{ id: string; email: string; username: string | null; role: AdminRole }>(
+      `SELECT a.id, a.email, a.username, a.role
        FROM admin_sessions s JOIN admin_users a ON a.id = s.admin_id
        WHERE s.token_hash = $1 AND s.expires_at > now() AND a.active`,
       [tokenHash],
