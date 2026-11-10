@@ -1,117 +1,117 @@
-# ADR 0002: Idempotency of webhooks and fulfillment
+# ADR 0002: Idempotency ของ webhook และ fulfillment
 
-Status: Draft.
+สถานะ (Status): Draft
 
-## Context
+## บริบท (Context)
 
-Spec 5.4 makes a double top-up an immediate failure, and every message can arrive twice, out of order or not at all. Any process can die between two lines. mock-game does not protect us: every POST it commits counts as another top-up, and `SUCCESS_BUT_TIMEOUT_RATE` makes it commit and then never answer.
+สเปกข้อ 5.4 กำหนดว่าเติมเกมซ้ำคือตกทันที และทุกข้อความอาจมาซ้ำ สลับลำดับ หรือหายไป process ใดก็ตายระหว่างสองบรรทัดได้ mock-game ไม่ได้ช่วยปกป้องเรา: ทุก POST ที่มัน commit นับเป็นการเติมเพิ่มอีกครั้ง และ `SUCCESS_BUT_TIMEOUT_RATE` ทำให้มัน commit แล้วไม่ตอบเลย
 
-## Decision
+## การตัดสินใจ (Decision)
 
-Deduplicate webhooks with the `webhook_events` primary key inside the transaction that changes the status; write follow-up work to an outbox row in that same transaction; top up only after a GET answered 404 for the reference `<order_id>:<sku>`; send refunds with an idempotent `refund_id` and settle them in one SQL function. The sections below give the details. Code: `apps/api/src/webhooks/`, `apps/worker/src/job-handlers.ts`, `apps/worker/src/outbox.repository.ts`, `db/migrations/0003`, `0006`, `0007`. Proof: `scripts/audit/invariants.mjs` scenarios s2a (worker killed 3 times while orders were IN_PROGRESS), s2b (duplicate, new and replayed webhooks, bad signatures), s3 (concurrent refunds, worker kills while refunding, refund webhook replays), and `db/src/refund-settlement.int.spec.ts`.
+กัน webhook ซ้ำด้วย primary key ของ `webhook_events` ภายใน transaction ที่เปลี่ยนสถานะ; เขียนงานต่อเนื่องเป็นแถว outbox ใน transaction เดียวกัน; เติมเกมเฉพาะหลัง GET ตอบ 404 สำหรับ reference `<order_id>:<sku>`; ส่ง refund ด้วย `refund_id` ที่ idempotent และ settle ด้วย SQL function เดียว รายละเอียดอยู่ในหัวข้อด้านล่าง โค้ด: `apps/api/src/webhooks/`, `apps/worker/src/job-handlers.ts`, `apps/worker/src/outbox.repository.ts`, `db/migrations/0003`, `0006`, `0007` หลักฐาน: `scripts/audit/invariants.mjs` scenario s2a (kill worker 3 ครั้งขณะออเดอร์เป็น IN_PROGRESS), s2b (webhook ซ้ำ ใหม่ และ replay, signature ผิด), s3 (refund พร้อมกัน, kill worker ระหว่าง refund, replay refund webhook) และ `db/src/refund-settlement.int.spec.ts`
 
 ## Webhook
 
-`POST /api/v1/webhooks/payment`, in this order:
+`POST /api/v1/webhooks/payment` ตามลำดับนี้:
 
-1. Verify `X-IBM-Signature` over `req.rawBody` with `timingSafeEqual`. The header format is checked first, so both sides are always 32 bytes. `t` more than 300 seconds away is refused. All of these are 401 `INVALID_SIGNATURE`.
-2. Validate the body with Zod. 422 on failure.
-3. In one transaction: `INSERT INTO webhook_events ... ON CONFLICT (event_id) DO NOTHING`, the status change, its `order_events`, the outbox job, then commit and answer 200.
+1. ตรวจ `X-IBM-Signature` บน `req.rawBody` ด้วย `timingSafeEqual` ตรวจรูปแบบ header ก่อน ทั้งสองฝั่งจึงยาว 32 bytes เสมอ ถ้า `t` ห่างเกิน 300 วินาทีจะถูกปฏิเสธ ทั้งหมดนี้ตอบ 401 `INVALID_SIGNATURE`
+2. Validate body ด้วย Zod ไม่ผ่านตอบ 422
+3. ใน transaction เดียว: `INSERT INTO webhook_events ... ON CONFLICT (event_id) DO NOTHING`, การเปลี่ยนสถานะ, `order_events` ของมัน, outbox job แล้ว commit และตอบ 200
 
-The primary key does the deduplication. A copy arriving during the first one blocks on the index until it commits, then sees the row and answers 200 with outcome `duplicate`. If the first one crashed, the row rolled back with it, so the provider's retry starts clean. No `processing` state exists that could get stuck. The same reasoning as ADR 0001.
+primary key ทำหน้าที่กันซ้ำ สำเนาที่มาระหว่างตัวแรกกำลังทำจะรอที่ index จนตัวแรก commit แล้วเห็นแถวนั้นและตอบ 200 พร้อม outcome `duplicate` ถ้าตัวแรก crash แถวก็ rollback ไปด้วย การ retry ของ provider จึงเริ่มใหม่สะอาด ไม่มีสถานะ `processing` ที่อาจค้าง เหตุผลเดียวกับ ADR 0001
 
-Lock order is the one in ADR 0001: event row, email advisory lock, order row, products by SKU, voucher. The email is read before the order lock, which is safe because it never changes. `payment.succeeded` always takes the email lock, because a late payment re-checks the per-email limit.
+ลำดับการล็อกตาม ADR 0001: แถว event, email advisory lock, แถวออเดอร์, products ตาม SKU, voucher อ่านอีเมลก่อนล็อกออเดอร์ซึ่งปลอดภัยเพราะอีเมลไม่เปลี่ยน `payment.succeeded` ขอ email lock เสมอ เพราะการจ่ายช้าต้องตรวจเพดานต่ออีเมลซ้ำ
 
-| Event | Order status | Result |
+| Event | สถานะออเดอร์ | ผลลัพธ์ |
 |---|---|---|
-| `payment.succeeded`, amount matches | PENDING_PAYMENT | PAID, IN_QUEUE and the job, in one transaction |
-| `payment.succeeded`, wrong amount or not THB | PENDING_PAYMENT, EXPIRED | Records `paid_satang`, NEEDS_REVIEW. No top-up |
-| `payment.succeeded` | EXPIRED | ADR 0004: re-acquire, otherwise refund |
+| `payment.succeeded` ยอดตรง | PENDING_PAYMENT | PAID, IN_QUEUE และ job ใน transaction เดียว |
+| `payment.succeeded` ยอดผิดหรือไม่ใช่ THB | PENDING_PAYMENT, EXPIRED | บันทึก `paid_satang`, NEEDS_REVIEW ไม่เติมเกม |
+| `payment.succeeded` | EXPIRED | ADR 0004: จองคืน ไม่เช่นนั้น refund |
 | `payment.succeeded` | PAYMENT_FAILED | NEEDS_REVIEW, ADR 0004 |
-| `payment.succeeded`, new `event_id` | Already paid | Status unchanged, `payment.duplicate` event. Reconciliation reports it |
-| `payment.failed` | PENDING_PAYMENT | PAYMENT_FAILED, gives back stock and voucher in the same transaction |
-| `payment.failed` | Anything else | Status unchanged, `payment.failed_ignored` event |
-| `payment.refunded` | Has a matching PENDING refund | Settled |
-| `payment.refunded` | No match | NEEDS_REVIEW, because money moved that we did not ask for |
-| Any | Unknown order | Recorded, answers 200, so the provider stops retrying |
+| `payment.succeeded` ที่มี `event_id` ใหม่ | จ่ายแล้ว | สถานะไม่เปลี่ยน, event `payment.duplicate` และ reconciliation รายงาน |
+| `payment.failed` | PENDING_PAYMENT | PAYMENT_FAILED คืน stock และ voucher ใน transaction เดียวกัน |
+| `payment.failed` | อื่น ๆ | สถานะไม่เปลี่ยน, event `payment.failed_ignored` |
+| `payment.refunded` | มี refund PENDING ที่ตรงกัน | Settle |
+| `payment.refunded` | ไม่มีที่ตรงกัน | NEEDS_REVIEW เพราะมีเงินเคลื่อนไหวที่เราไม่ได้ขอ |
+| ใดก็ได้ | ออเดอร์ที่ไม่รู้จัก | บันทึกไว้ ตอบ 200 เพื่อให้ provider หยุด retry |
 
-## Outbox and leases
+## Outbox และ lease
 
-A job is a row written in the transaction that changes the status, so "status changed but no job" cannot happen. Workers claim with `FOR UPDATE SKIP LOCKED` and push `available_at` forward by the lease. The claim commits at once, so no connection or lock is held during HTTP.
+job คือแถวที่เขียนใน transaction ที่เปลี่ยนสถานะ กรณี "สถานะเปลี่ยนแต่ไม่มี job" จึงเกิดไม่ได้ worker claim ด้วย `FOR UPDATE SKIP LOCKED` และเลื่อน `available_at` ไปข้างหน้าตาม lease การ claim commit ทันที จึงไม่ถือ connection หรือล็อกระหว่างยิง HTTP
 
-A worker that dies needs no special handling: `available_at` passes and the next poll takes the job. `attempts` goes up on each claim, and `(id, attempts)` works as a fencing token, so a worker that stalled past its lease cannot change anything once another one has claimed the job. Started jobs go ahead of new ones, because their orders are on the 2 minute clock. `requeueOrphans` is only a safety net and should find nothing.
+worker ที่ตายไม่ต้องจัดการพิเศษ: เมื่อเลย `available_at` การ poll ครั้งถัดไปจะหยิบ job ไป `attempts` เพิ่มทุกครั้งที่ claim และ `(id, attempts)` ทำหน้าที่เป็น fencing token worker ที่ค้างเกิน lease จึงเปลี่ยนอะไรไม่ได้เมื่อตัวอื่น claim ไปแล้ว job ที่เริ่มแล้วได้คิวก่อน job ใหม่ เพราะออเดอร์ของมันอยู่ในนาฬิกา 2 นาที `requeueOrphans` เป็นแค่ตาข่ายกันพลาดและไม่ควรเจออะไร
 
-Redis only wakes the worker sooner. Polling runs every second regardless, and publishing never fails a request.
+Redis แค่ปลุก worker ให้เร็วขึ้น polling ยังรันทุกวินาทีเสมอ และการ publish ไม่เคยทำให้ request ล้ม
 
-## Never topping up twice
+## ไม่เติมเกมซ้ำเด็ดขาด
 
-**The rule:** POST only straight after a GET answered 404, and only when nothing else could still land. A timeout, a 5XX on GET, a network error or a 200 with no count all mean "we do not know", and not knowing never leads to a POST.
+**กฎ:** POST เฉพาะทันทีหลัง GET ตอบ 404 และเฉพาะเมื่อไม่มีอะไรอื่นที่อาจยังลงไปได้ timeout, 5XX ของ GET, network error หรือ 200 ที่ไม่มี count ล้วนหมายถึง "เราไม่รู้" และการไม่รู้ไม่เคยนำไปสู่ POST
 
-An order can have several lines and mock-game takes one sku per POST, so the reference is `<order_id>:<sku>`. It never changes across retries.
+ออเดอร์มีได้หลายบรรทัดและ mock-game รับหนึ่ง sku ต่อ POST reference จึงเป็น `<order_id>:<sku>` ซึ่งไม่เปลี่ยนข้าม retry
 
-Each claim, for each line:
+ทุกการ claim สำหรับแต่ละบรรทัด:
 
-1. `GET /topups/{reference}`. Found: this line is done. Unknown: retry later.
-2. Stop if this is the last claim or the POST limit was reached. The line is not delivered.
-3. Insert `fulfillment_attempts` as IN_FLIGHT and renew the lease, then commit. Insert is refused if this claim is no longer ours or another attempt is in flight (a partial unique index).
-4. POST. Record the result as SUCCEEDED, FAILED or UNKNOWN.
+1. `GET /topups/{reference}` เจอ: บรรทัดนี้เสร็จ ไม่รู้: retry ทีหลัง
+2. หยุดถ้านี่เป็น claim สุดท้ายหรือถึงเพดาน POST แล้ว บรรทัดนี้ถือว่าไม่ได้ส่ง
+3. Insert `fulfillment_attempts` เป็น IN_FLIGHT และต่อ lease แล้ว commit การ insert ถูกปฏิเสธถ้า claim นี้ไม่ใช่ของเราแล้ว หรือมี attempt อื่น in flight อยู่ (partial unique index)
+4. POST บันทึกผลเป็น SUCCEEDED, FAILED หรือ UNKNOWN
 
-### The timing trap
+### กับดักเรื่องจังหวะเวลา
 
-The trap: the client times out while mock-game is still inside `LATENCY_MS`, before it commits. A GET at that moment could answer 404, a second POST goes out, and the first one then commits as well.
+กับดัก: client timeout ขณะที่ mock-game ยังอยู่ใน `LATENCY_MS` ก่อนที่มันจะ commit GET ในจังหวะนั้นอาจตอบ 404 แล้ว POST ครั้งที่สองออกไป จากนั้น POST แรกก็ commit ด้วย
 
-In `apps/mock-game/server.js` the delay runs before routing for both methods, and the state is read after it. So a GET sent after a POST reads the state after that POST's commit, whatever the latency. Our reading of 404 is therefore correct with this mock. We do not want to depend on that alone, so:
+ใน `apps/mock-game/server.js` delay รันก่อน routing สำหรับทั้งสอง method และอ่าน state หลัง delay ดังนั้น GET ที่ส่งหลัง POST จะอ่าน state หลัง POST นั้น commit ไม่ว่า latency เท่าไร การตีความ 404 ของเราจึงถูกต้องกับ mock นี้ แต่เราไม่อยากพึ่งสิ่งนี้อย่างเดียว จึง:
 
-- After a timeout there is a settle wait before the next GET (`FULFILLMENT_SETTLE_MS`, 5 s). A POST that was already on its way has had POST timeout + settle = 13 s to land, on top of the GET's own delay in this mock.
-- The GET has its own timeout. With `LATENCY_MS` above it the GET cannot answer, the state stays unknown, and no POST goes out. The order ends in NEEDS_REVIEW.
-- After a crash, an IN_FLIGHT attempt is only taken over when the lease has ended. The worker refuses to start unless the lease is longer than POST timeout + settle + GET timeout, so whoever sent that POST has timed out and it has had the settle time.
+- หลัง timeout มี settle wait ก่อน GET ถัดไป (`FULFILLMENT_SETTLE_MS`, 5 s) POST ที่ออกไปแล้วจะมีเวลา POST timeout + settle = 13 s ให้ลงไป บวกกับ delay ของ GET เองใน mock นี้
+- GET มี timeout ของตัวเอง ถ้า `LATENCY_MS` สูงกว่านั้น GET จะตอบไม่ทัน state ยังไม่รู้ และไม่มี POST ออกไป ออเดอร์จบที่ NEEDS_REVIEW
+- หลัง crash attempt ที่ IN_FLIGHT จะถูกรับช่วงเฉพาะเมื่อ lease หมดแล้ว worker ไม่ยอมเริ่มถ้า lease ไม่ยาวกว่า POST timeout + settle + GET timeout ดังนั้นใครที่ส่ง POST นั้นก็ timeout ไปแล้ว และ POST นั้นได้เวลา settle แล้ว
 
-Two runs tested this directly. A 3 s POST timeout against 6 s of `LATENCY_MS`: every POST timed out first and committed afterwards, the next GET found it, and all 12 orders completed with a count of 1. `LATENCY_MS` of 12 s, above the 8 s GET timeout: no POST went out at all, and all 4 orders went to NEEDS_REVIEW.
+ทดสอบตรง ๆ สองรอบ: POST timeout 3 s กับ `LATENCY_MS` 6 s: ทุก POST timeout ก่อนแล้วค่อย commit ทีหลัง GET ถัดไปเจอ และทั้ง 12 ออเดอร์ completed ด้วย count เท่ากับ 1 อีกรอบ `LATENCY_MS` 12 s ซึ่งสูงกว่า GET timeout 8 s: ไม่มี POST ออกไปเลย และทั้ง 4 ออเดอร์ไป NEEDS_REVIEW
 
-### When it stops
+### เมื่อไหร่ที่หยุด
 
-Five claims at most: up to three rounds of GET and POST, and a last claim that only reads. A last read means the decision always rests on a fresh GET after the settle wait.
+สูงสุด 5 claim: GET และ POST ได้ถึงสามรอบ และ claim สุดท้ายที่อ่านอย่างเดียว การอ่านครั้งสุดท้ายทำให้การตัดสินใจอิงกับ GET ใหม่หลัง settle wait เสมอ
 
-| Last known state | Result |
+| สถานะล่าสุดที่รู้ | ผลลัพธ์ |
 |---|---|
-| All lines found | COMPLETED |
-| A GET still cannot answer | NEEDS_REVIEW and dead letter. No guessing |
-| Some lines found, others confirmed not delivered | NEEDS_REVIEW and dead letter. A full refund would be wrong |
-| No line delivered, confirmed by GET | FAILED, dead letter and automatic refund, in one transaction |
+| เจอครบทุกบรรทัด | COMPLETED |
+| GET ยังตอบไม่ได้ | NEEDS_REVIEW และ dead letter ไม่เดา |
+| เจอบางบรรทัด บรรทัดอื่นยืนยันว่าไม่ได้ส่ง | NEEDS_REVIEW และ dead letter refund เต็มจำนวนจะผิด |
+| ไม่มีบรรทัดไหนส่งถึง ยืนยันด้วย GET | FAILED, dead letter และ refund อัตโนมัติ ใน transaction เดียว |
 
-Defaults: 3 x (8 s POST + 5 s settle + up to 4 s backoff) is about 51 s, and after a crash up to 25 s of lease on top. So an order leaves IN_PROGRESS inside the 2 minutes of spec section 7 once the system is back. The first defaults (10 s, 10 s and a 35 s lease) reached 119 s by the raw clock in a run with two kills, too close to the limit. The cost of the shorter timeouts: with `LATENCY_MS` of 8 s or more, every order ends in NEEDS_REVIEW. That is safe, and the timeouts can be raised through env.
+ค่า default: 3 x (POST 8 s + settle 5 s + backoff สูงสุด 4 s) ประมาณ 51 s และหลัง crash บวก lease อีกสูงสุด 25 s ดังนั้นออเดอร์ออกจาก IN_PROGRESS ภายใน 2 นาทีตามสเปกข้อ 7 เมื่อระบบกลับมา ค่า default แรก (10 s, 10 s และ lease 35 s) ไปถึง 119 s ตามนาฬิกาจริงในรอบที่ kill สองครั้ง ใกล้เพดานเกินไป ต้นทุนของ timeout ที่สั้นลง: เมื่อ `LATENCY_MS` ตั้งแต่ 8 s ขึ้นไป ทุกออเดอร์จบที่ NEEDS_REVIEW ซึ่งปลอดภัย และเพิ่ม timeout ได้ผ่าน env
 
-### What remains
+### สิ่งที่ยังเหลือ
 
-A worker could stall between committing the attempt and sending the bytes, for longer than the lease, while a second worker takes over. We shrink that window by checking the elapsed time right before the POST, but only a provider with real idempotency could close it. Compose runs one worker, which cannot race itself.
+worker อาจค้างระหว่าง commit attempt กับการส่ง bytes นานกว่า lease ขณะที่ worker ตัวที่สองรับช่วง เราลดช่องนี้ด้วยการเช็กเวลาที่ผ่านไปก่อน POST ทันที แต่มีเพียง provider ที่มี idempotency จริงเท่านั้นที่ปิดช่องนี้ได้ Compose รัน worker ตัวเดียว ซึ่งแข่งกับตัวเองไม่ได้
 
-## Refunds
+## Refund
 
-Same single-transaction idempotency as orders (ADR 0001), scoped per order. The order row lock runs concurrent refunds one at a time, `planRefund` checks the remainder, and the database backs it up with `orders_refund_within_paid`.
+ใช้ idempotency แบบ transaction เดียวเหมือนออเดอร์ (ADR 0001) โดยมีขอบเขตต่อออเดอร์ ล็อกแถวออเดอร์ทำให้ refund พร้อมกันวิ่งทีละตัว `planRefund` ตรวจยอดคงเหลือ และฐานข้อมูลหนุนด้วย `orders_refund_within_paid`
 
-The API only writes the PENDING row and the job, and the worker calls `POST /refunds`. `refund_id` is `refunds.refund_ref`, random rather than the identity value, because `_test/reset` restarts identities and mock-pay keeps its journal. Resending it is always safe.
+API เขียนแค่แถว PENDING และ job แล้ว worker เรียก `POST /refunds` `refund_id` คือ `refunds.refund_ref` ซึ่งสุ่ม ไม่ใช่ค่า identity เพราะ `_test/reset` restart identity แต่ mock-pay เก็บ journal ไว้ การส่งซ้ำปลอดภัยเสมอ
 
-Settling is one SQL function, `settle_refund`, used by both the webhook and the answer to `POST /refunds`, whichever comes first. The webhook names no refund, so it matches on amount, and the worker's answer prefers its own row. Each event settles exactly one PENDING row, and an event already used is a no-op. `provider_event_id` is unique, which backs this up.
+การ settle เป็น SQL function เดียวคือ `settle_refund` ใช้ทั้งจาก webhook และจากคำตอบของ `POST /refunds` อันไหนมาก่อนก็ได้ webhook ไม่ระบุ refund จึงจับคู่ด้วยยอด และคำตอบของ worker เลือกแถวของตัวเองก่อน แต่ละ event settle แถว PENDING ได้หนึ่งแถวพอดี และ event ที่ใช้แล้วไม่มีผล `provider_event_id` เป็น unique หนุนอีกชั้น
 
-Matching on amount alone was not enough (audit, `s3/same-amount-order`). With two PENDING rows A and B of 5000, a worker that sent B and died left B's webhook to settle A, the lowest id. The restarted job for A then saw a row that was not PENDING and closed without sending, and B's job got `already_settled`. The provider had one refund, the database one settled and one stuck PENDING, and nothing would ever send A. The fix, chosen as the simplest one that can be argued for every interleaving: **every refund job sends its own `refund_id` unless its row is FAILED**, even when a webhook already settled that row. Why the totals then match:
+การจับคู่ด้วยยอดอย่างเดียวไม่พอ (audit, `s3/same-amount-order`) เมื่อมีแถว PENDING สองแถว A และ B ยอด 5000 worker ที่ส่ง B แล้วตาย ทิ้งให้ webhook ของ B ไป settle A ซึ่งมี id ต่ำสุด job ของ A ที่ restart แล้วเห็นแถวที่ไม่ใช่ PENDING จึงปิดโดยไม่ส่ง และ job ของ B ได้ `already_settled` provider มี refund หนึ่งรายการ ฐานข้อมูลมี settle หนึ่งและค้าง PENDING หนึ่ง และไม่มีอะไรจะส่ง A อีกเลย วิธีแก้ที่เลือกเพราะง่ายที่สุดที่พิสูจน์ได้ทุก interleaving: **ทุก refund job ส่ง `refund_id` ของตัวเองเว้นแต่แถวของมันเป็น FAILED** แม้ webhook จะ settle แถวนั้นไปแล้ว เหตุผลที่ยอดรวมตรงกัน:
 
-- `refund_id` is idempotent at the provider, so each row produces at most one provider refund, and every row that is not refused produces exactly one once its job gets an answer.
-- Each provider event settles exactly one PENDING row of the same order and amount, and never twice.
-- So per order and amount, settled rows = provider refunds, whichever row an event lands on. A row settled by another row's event still sends its own `refund_id`, and the refund that creates settles the row that is still PENDING.
-- What is left PENDING is only a row whose job ran out of retries with no answer, which is real uncertainty. Reconciliation reports it.
+- `refund_id` idempotent ที่ provider แต่ละแถวจึงสร้าง refund ที่ provider ได้ไม่เกินหนึ่ง และทุกแถวที่ไม่ถูกปฏิเสธจะสร้างได้หนึ่งพอดีเมื่อ job ได้คำตอบ
+- แต่ละ provider event settle แถว PENDING ได้หนึ่งแถวพอดีในออเดอร์และยอดเดียวกัน และไม่ซ้ำสอง
+- ดังนั้นต่อออเดอร์และยอด แถวที่ settle = refund ที่ provider ไม่ว่า event จะไปลงแถวไหน แถวที่ถูก settle ด้วย event ของแถวอื่นยังส่ง `refund_id` ของตัวเอง และ refund ที่เกิดขึ้นจะ settle แถวที่ยัง PENDING
+- สิ่งที่ค้าง PENDING เหลือแค่แถวที่ job หมด retry โดยไม่ได้คำตอบ ซึ่งเป็นความไม่แน่นอนจริง reconciliation รายงานไว้
 
-An alternative was a `sent_at` column, matching webhooks only to rows already sent. It does not remove the ambiguity between two sent rows, so the job still has to keep sending, and it adds a write before every POST.
+ทางเลือกอื่นคือคอลัมน์ `sent_at` จับคู่ webhook เฉพาะแถวที่ส่งแล้ว แต่ไม่แก้ความกำกวมระหว่างสองแถวที่ส่งแล้ว job จึงยังต้องส่งต่อไป และเพิ่มการเขียนก่อนทุก POST
 
-**Payments the provider never saw.** The review team signs its own `payment.succeeded` webhooks, so mock-pay can be asked to refund an order it has no payment for. The worker sends `paid_satang` and the `event_id` of the webhook that paid the order with every `POST /refunds`. mock-pay uses them only when it has no payment for that order: it records the payment under that `event_id` (in its journal and settlement file, without sending a webhook), then checks the balance as usual. A payment it already knows is never changed by `paid_satang`. Reconciliation then sees the same `event_id` and amount on both sides.
+**การชำระที่ provider ไม่เคยเห็น** ทีมตรวจเซ็น webhook `payment.succeeded` เอง mock-pay จึงอาจถูกขอให้ refund ออเดอร์ที่มันไม่มีการชำระ worker ส่ง `paid_satang` และ `event_id` ของ webhook ที่จ่ายออเดอร์นั้นไปกับทุก `POST /refunds` mock-pay ใช้ค่าเหล่านี้เฉพาะเมื่อไม่มีการชำระของออเดอร์นั้น: บันทึกการชำระด้วย `event_id` นั้น (ใน journal และ settlement file โดยไม่ส่ง webhook) แล้วตรวจยอดคงเหลือตามปกติ การชำระที่มันรู้อยู่แล้วจะไม่ถูกเปลี่ยนด้วย `paid_satang` จากนั้น reconciliation จะเห็น `event_id` และยอดเดียวกันทั้งสองฝั่ง
 
-**Reconciliation** also reports, as `STATUS_MISMATCH`, every PENDING refund that no open job will send, and every PENDING refund older than 15 minutes.
+**Reconciliation** ยังรายงานเป็น `STATUS_MISMATCH` ทุก refund PENDING ที่ไม่มี job ที่เปิดอยู่จะส่ง และทุก refund PENDING ที่เก่ากว่า 15 นาที
 
-**Stock and voucher use on a refund.** A full refund returns the holds when the order was FAILED, or when it never reached `IN_QUEUE` (for example NEEDS_REVIEW after an amount mismatch), because nothing went to the game. Such an order may have returned them already on its way through EXPIRED or PAYMENT_FAILED, so migration 0007 adds `order_hold_releases`: `release_order_holds` gives stock and voucher use back only when it changes that row from held to released. A late payment that re-acquires (ADR 0004) marks it held again. The expiry worker uses the same function.
+**Stock และการใช้ voucher เมื่อ refund** refund เต็มจำนวนคืน hold เมื่อออเดอร์เป็น FAILED หรือไม่เคยถึง `IN_QUEUE` (เช่น NEEDS_REVIEW หลังยอดไม่ตรง) เพราะไม่มีอะไรไปถึงเกม ออเดอร์แบบนี้อาจคืนไปแล้วระหว่างผ่าน EXPIRED หรือ PAYMENT_FAILED ดังนั้น migration 0007 เพิ่ม `order_hold_releases`: `release_order_holds` คืน stock และการใช้ voucher เฉพาะเมื่อมันเปลี่ยนแถวนั้นจาก held เป็น released การจ่ายช้าที่จองคืน (ADR 0004) ทำเครื่องหมายเป็น held อีกครั้ง expiry worker ใช้ function เดียวกัน
 
-A refund the provider refuses goes to FAILED, gives its amount back, and the order goes to NEEDS_REVIEW. A refund that runs out of retries stays PENDING, because the provider may have done it, so the amount stays reserved and a late webhook can still settle it.
+refund ที่ provider ปฏิเสธจะเป็น FAILED คืนยอดของมัน และออเดอร์ไป NEEDS_REVIEW refund ที่หมด retry คง PENDING เพราะ provider อาจทำไปแล้ว ยอดจึงยังถูกกันไว้ และ webhook ที่มาช้ายัง settle ได้
 
-## Consequences
+## ผลที่ตามมา (Consequences)
 
-- A hanging provider costs an order about 13 s per try, in exchange for not having to trust a timeout.
-- Under load, a refund reports PENDING first and settles later. The API answers 202.
-- `/stats` shows `<order_id>:<sku>`, not the order id alone.
+- provider ที่ค้างทำให้ออเดอร์เสียเวลาราว 13 s ต่อครั้ง แลกกับการไม่ต้องเชื่อ timeout
+- ภายใต้โหลด refund รายงาน PENDING ก่อนแล้ว settle ทีหลัง API ตอบ 202
+- `/stats` แสดง `<order_id>:<sku>` ไม่ใช่ order id อย่างเดียว

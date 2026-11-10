@@ -1,56 +1,56 @@
-# ADR 0004: Payment that arrives after an order expired
+# ADR 0004: การชำระเงินที่มาถึงหลังออเดอร์หมดอายุ
 
-Status: Draft. Built in the webhook and worker, see ADR 0002.
+สถานะ (Status): Draft สร้างไว้ใน webhook และ worker ดู ADR 0002
 
-## Context
+## บริบท (Context)
 
-Spec section 6 says `payment.succeeded` on an EXPIRED order must re-reserve and continue, or refund automatically when there is no stock. The diagram in section 5.3 has no edge out of EXPIRED, and also no edge out of NEEDS_REVIEW. Section 5.3 also says any transition outside the diagram must be rejected, so the two sections conflict.
+สเปกข้อ 6 บอกว่า `payment.succeeded` บนออเดอร์ EXPIRED ต้องจองใหม่แล้วไปต่อ หรือ refund อัตโนมัติเมื่อไม่มี stock แต่แผนภาพในข้อ 5.3 ไม่มีเส้นออกจาก EXPIRED และไม่มีเส้นออกจาก NEEDS_REVIEW ด้วย ข้อ 5.3 ยังบอกว่า transition ใดที่อยู่นอกแผนภาพต้องถูกปฏิเสธ สองข้อจึงขัดกัน
 
-## Decision
+## การตัดสินใจ (Decision)
 
-Section 6 is the more specific rule, so we add the fewest edges that make it work. `ORDER_TRANSITIONS` in `packages/domain/src/order-state.ts` and `order_status_transitions` in `db/migrations/0002_orders.sql` hold the same list, and a test fails if they drift.
+ข้อ 6 เป็นกฎที่เจาะจงกว่า จึงเพิ่มเส้นให้น้อยที่สุดที่ทำให้ใช้งานได้ `ORDER_TRANSITIONS` ใน `packages/domain/src/order-state.ts` และ `order_status_transitions` ใน `db/migrations/0002_orders.sql` เก็บรายการเดียวกัน และมี test ที่ล้มถ้าสองที่ไม่ตรงกัน
 
-| Added edge | When |
+| เส้นที่เพิ่ม | เมื่อไหร่ |
 |---|---|
-| EXPIRED → PAID | Payment matches the total, and stock, per-email allowance and voucher were all re-acquired |
-| EXPIRED → REFUNDED | Payment matches the total but something could not be re-acquired, once the automatic refund has settled |
-| NEEDS_REVIEW → PAID | A person confirms the payment is good; fulfilment continues from PAID |
-| NEEDS_REVIEW → COMPLETED | A person confirms the top-up was delivered, for example from `GET /topups/{reference}` |
-| NEEDS_REVIEW → REFUNDED | A person refunds the order in full |
+| EXPIRED → PAID | ยอดชำระตรงกับ total และจองคืน stock, สิทธิ์ต่ออีเมล และ voucher ได้ครบ |
+| EXPIRED → REFUNDED | ยอดชำระตรงกับ total แต่จองคืนบางอย่างไม่ได้ เมื่อ refund อัตโนมัติ settle แล้ว |
+| NEEDS_REVIEW → PAID | คนยืนยันว่าการชำระถูกต้อง fulfilment ไปต่อจาก PAID |
+| NEEDS_REVIEW → COMPLETED | คนยืนยันว่าเติมเกมถึงแล้ว เช่นจาก `GET /topups/{reference}` |
+| NEEDS_REVIEW → REFUNDED | คน refund ออเดอร์เต็มจำนวน |
 
-EXPIRED → NEEDS_REVIEW already follows from the last line of the diagram, and it is the path for a late payment with the wrong amount.
+EXPIRED → NEEDS_REVIEW มีอยู่แล้วจากบรรทัดสุดท้ายของแผนภาพ และเป็นเส้นทางของการจ่ายช้าที่ยอดไม่ตรง
 
-### Handling a late payment
+### การจัดการการจ่ายเงินช้า
 
-`decideLatePayment` in the domain package makes the decision. In one transaction, the webhook handler:
+`decideLatePayment` ใน domain package เป็นผู้ตัดสิน webhook handler ทำใน transaction เดียว:
 
-1. Sets `paid_satang`. A wrong amount goes to NEEDS_REVIEW and stops here.
-2. Re-acquires stock with the conditional UPDATE, re-checks the per-email limit, and re-acquires the voucher with a new `voucher_redemptions` row and the conditional UPDATE on `used_count`.
-3. On success, moves EXPIRED → PAID. Otherwise it rolls back step 2 only, inserts a PENDING refund for the full amount, and writes an outbox job. The order stays EXPIRED until the refund settles, then moves to REFUNDED.
+1. ตั้ง `paid_satang` ถ้ายอดไม่ตรงไป NEEDS_REVIEW และหยุดตรงนี้
+2. จองคืน stock ด้วย conditional UPDATE, ตรวจเพดานต่ออีเมลซ้ำ และจองคืน voucher ด้วยแถว `voucher_redemptions` ใหม่และ conditional UPDATE บน `used_count`
+3. ถ้าสำเร็จ เปลี่ยน EXPIRED → PAID ไม่เช่นนั้น rollback เฉพาะขั้นที่ 2, insert refund สถานะ PENDING เต็มจำนวน และเขียน outbox job ออเดอร์คงเป็น EXPIRED จนกว่า refund settle แล้วจึงเป็น REFUNDED
 
-The voucher and the per-email limit are re-checked as well as stock. Without that, an expired order could take SAVE10 past 10 uses or FLASH-SKIN-01 past 2 per email, after the slot had gone to someone else, which breaks invariant 4.
+voucher และเพดานต่ออีเมลถูกตรวจซ้ำเช่นเดียวกับ stock ไม่เช่นนั้นออเดอร์ที่หมดอายุอาจทำให้ SAVE10 เกิน 10 ครั้ง หรือ FLASH-SKIN-01 เกิน 2 ชิ้นต่ออีเมล หลังจากสิทธิ์นั้นไปเป็นของคนอื่นแล้ว ซึ่งละเมิด invariant 4
 
-### Partial refunds
+### Partial refund
 
-A partial refund never changes the status. The order keeps its status and `refunded_satang` grows. The trigger on `orders` only allows REFUNDED when SUCCEEDED refunds add up to exactly `paid_satang`.
+partial refund ไม่เปลี่ยนสถานะ ออเดอร์คงสถานะเดิมและ `refunded_satang` เพิ่มขึ้น trigger บน `orders` ยอมให้เป็น REFUNDED เฉพาะเมื่อ refund ที่ SUCCEEDED รวมได้เท่ากับ `paid_satang` พอดี
 
-## Other cases
+## กรณีอื่น ๆ (Other cases)
 
-- `payment.failed` after `payment.succeeded`: there is no edge from a paid status to PAYMENT_FAILED, so the event is recorded and ignored.
-- `payment.succeeded` on PAYMENT_FAILED: goes to NEEDS_REVIEW. The spec does not cover it, and a person should look at money received on an order we already told the customer had failed.
-- Admin retry of a FAILED order: FAILED → NEEDS_REVIEW → PAID → IN_QUEUE, which reuses the edges above instead of adding FAILED → IN_QUEUE.
+- `payment.failed` หลัง `payment.succeeded`: ไม่มีเส้นจากสถานะที่จ่ายแล้วไป PAYMENT_FAILED จึงบันทึก event แล้วเพิกเฉย
+- `payment.succeeded` บน PAYMENT_FAILED: ไป NEEDS_REVIEW สเปกไม่ได้ครอบคลุม และควรให้คนดูเงินที่ได้รับบนออเดอร์ที่เราแจ้งลูกค้าไปแล้วว่าล้มเหลว
+- Admin retry ออเดอร์ FAILED: FAILED → NEEDS_REVIEW → PAID → IN_QUEUE ใช้เส้นข้างบนซ้ำแทนการเพิ่ม FAILED → IN_QUEUE
 
-## Decisions made while building it
+## การตัดสินใจระหว่างการสร้าง (Decisions made while building it)
 
-- **Late payment that cannot be fulfilled:** the order stays EXPIRED while the refund is PENDING, with a `payment.late_refund` event giving the reason, then moves to REFUNDED when it settles. If the provider refuses the refund, it goes to NEEDS_REVIEW.
-- **`payment.succeeded` while in NEEDS_REVIEW:** recorded, and `paid_satang` set if it was 0. A person decides from there.
-- **A second `payment.succeeded` with a new `event_id` on a paid order:** the status does not change, a `payment.duplicate` event is written, and reconciliation reports it as STATUS_MISMATCH. It is not refunded automatically, because the provider's duplicate delivery and a real second charge look the same from here.
-- **Refunding NEEDS_REVIEW:** allowed up to `paid_satang`, including on an amount mismatch. A full refund moves it to REFUNDED.
-- **Stock on refund:** FAILED to REFUNDED gives back stock and voucher, because GET confirmed nothing was delivered. COMPLETED to REFUNDED does not, because the player has the item. NEEDS_REVIEW to REFUNDED does not, because we do not know. This errs on selling less, never on overselling.
-- **Admin retry:** FAILED or NEEDS_REVIEW only, and only if the order is paid in full, reached IN_QUEUE before (so it still holds its stock and voucher), and has no refund. In practice a FAILED order nearly always has its automatic refund already, so retry is mainly for NEEDS_REVIEW.
+- **การจ่ายช้าที่ fulfil ไม่ได้:** ออเดอร์คง EXPIRED ขณะ refund เป็น PENDING พร้อม event `payment.late_refund` ที่ระบุเหตุผล แล้วเป็น REFUNDED เมื่อ settle ถ้า provider ปฏิเสธ refund จะไป NEEDS_REVIEW
+- **`payment.succeeded` ขณะอยู่ใน NEEDS_REVIEW:** บันทึกไว้ และตั้ง `paid_satang` ถ้าเดิมเป็น 0 ให้คนตัดสินต่อ
+- **`payment.succeeded` ครั้งที่สองด้วย `event_id` ใหม่บนออเดอร์ที่จ่ายแล้ว:** สถานะไม่เปลี่ยน เขียน event `payment.duplicate` และ reconciliation รายงานเป็น STATUS_MISMATCH ไม่ refund อัตโนมัติ เพราะจากฝั่งเรา การส่งซ้ำของ provider กับการตัดเงินซ้ำจริงดูเหมือนกัน
+- **Refund ออเดอร์ NEEDS_REVIEW:** ทำได้ไม่เกิน `paid_satang` รวมถึงกรณียอดไม่ตรง refund เต็มจำนวนจะย้ายไป REFUNDED
+- **Stock เมื่อ refund:** FAILED ไป REFUNDED คืน stock และ voucher เพราะ GET ยืนยันว่าไม่มีอะไรถูกส่ง COMPLETED ไป REFUNDED ไม่คืน เพราะผู้เล่นได้ของแล้ว NEEDS_REVIEW ไป REFUNDED ไม่คืน เพราะเราไม่รู้ ผิดพลาดไปทางขายน้อยลงเสมอ ไม่เคยไปทาง oversell
+- **Admin retry:** เฉพาะ FAILED หรือ NEEDS_REVIEW และเฉพาะเมื่อออเดอร์จ่ายครบ เคยถึง IN_QUEUE (จึงยังถือ stock และ voucher อยู่) และไม่มี refund ในทางปฏิบัติออเดอร์ FAILED แทบทุกตัวมี refund อัตโนมัติแล้ว retry จึงใช้กับ NEEDS_REVIEW เป็นหลัก
 
-## Consequences
+## ผลที่ตามมา (Consequences)
 
-- The state machine is larger than the spec's diagram, and a reviewer has to read this ADR to see why.
-- PAYMENT_FAILED and EXPIRED are not fully terminal.
-- Changing the edges needs a new migration plus a domain change, and the drift test enforces both.
+- state machine ใหญ่กว่าแผนภาพในสเปก และผู้ตรวจต้องอ่าน ADR นี้เพื่อเข้าใจเหตุผล
+- PAYMENT_FAILED และ EXPIRED ไม่ใช่สถานะปลายทางโดยสมบูรณ์
+- การเปลี่ยนเส้นต้องมี migration ใหม่และแก้ domain ด้วย และ drift test บังคับทั้งสองที่

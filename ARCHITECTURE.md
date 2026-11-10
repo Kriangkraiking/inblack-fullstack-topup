@@ -1,52 +1,54 @@
-# Architecture
+# สถาปัตยกรรม (Architecture)
 
-Postgres is the source of truth. Every state change, its `order_events` row and any follow-up job
-(outbox) commit in one transaction. Redis only carries hints (pub/sub wake-ups) and rate-limit
-counters; losing it loses no data. Concurrency is settled in the database (conditional `UPDATE`,
-unique indexes, row and advisory locks), never in process memory, because the API runs twice.
+Postgres คือ source of truth ทุกการเปลี่ยนสถานะ แถว `order_events` ของมัน และงานต่อเนื่อง
+(outbox) จะ commit ใน transaction เดียวกัน Redis ทำหน้าที่แค่ส่งสัญญาณ (pub/sub ปลุก) และนับ
+rate limit เท่านั้น ถ้า Redis หายก็ไม่เสียข้อมูล เรื่อง concurrency ตัดสินที่ฐานข้อมูล (conditional
+`UPDATE`, unique index, row lock และ advisory lock) ไม่ใช่ใน memory ของ process เพราะ API รันสองตัว
 
-## System
+<a id="system"></a>
+## ภาพรวมระบบ
 
 ```mermaid
 flowchart LR
-  browser([Browser])
+  browser(["เบราว์เซอร์"])
   web["web<br/>Next.js :3000"]
   proxy["proxy<br/>nginx :8080<br/>round-robin"]
   api1["api-1<br/>NestJS"]
   api2["api-2<br/>NestJS"]
-  worker["worker<br/>outbox, expiry,<br/>event relay"]
+  worker["worker<br/>outbox, expiry,<br/>ส่งต่อ event"]
   pg[("postgres :5433<br/>source of truth")]
-  redis[("redis<br/>pub/sub, rate limits<br/>not published")]
+  redis[("redis<br/>pub/sub, rate limit<br/>ไม่เปิดพอร์ตออกนอก")]
   pay["mock-pay :4010"]
   game["mock-game :4020"]
   mail["mailpit :8025"]
-  migrate["migrate<br/>one-shot"]
+  migrate["migrate<br/>รันครั้งเดียว"]
 
-  browser -->|pages| web
-  browser -->|REST + SSE| proxy
-  browser -->|hosted checkout| pay
-  web -->|server-side catalog read| proxy
+  browser -->|"หน้าเว็บ"| web
+  browser -->|"REST + SSE"| proxy
+  browser -->|"หน้าชำระเงิน hosted"| pay
+  web -->|"อ่าน catalog ฝั่ง server"| proxy
   proxy --> api1
   proxy --> api2
   api1 --> pg
   api2 --> pg
-  api1 <-->|subscribe order:id, rate limits| redis
-  api2 <-->|subscribe order:id, rate limits| redis
-  api1 -->|OTP mail| mail
-  api2 -->|OTP mail| mail
-  pay -->|signed webhook| proxy
-  worker -->|claim jobs, LISTEN order_events| pg
-  worker -->|publish order:id| redis
-  worker -->|GET/POST /topups| game
-  worker -->|POST /refunds| pay
-  migrate -->|migrations + seed| pg
+  api1 <-->|"subscribe order:id, rate limit"| redis
+  api2 <-->|"subscribe order:id, rate limit"| redis
+  api1 -->|"อีเมล OTP"| mail
+  api2 -->|"อีเมล OTP"| mail
+  pay -->|"webhook ที่ลงลายเซ็น"| proxy
+  worker -->|"claim งาน, LISTEN order_events"| pg
+  worker -->|"publish order:id"| redis
+  worker -->|"GET/POST /topups"| game
+  worker -->|"POST /refunds"| pay
+  migrate -->|"migration + seed"| pg
 ```
 
-Startup order is enforced by compose `depends_on`: postgres → migrate (must exit 0) → redis,
-mock-pay, mock-game → api-1/api-2 → proxy → web. api and worker connect as `inblack_app`, a role
-that owns nothing and cannot disable triggers; only `migrate` uses the owner (ADR 0001).
+ลำดับการเริ่มระบบบังคับด้วย `depends_on` ของ compose: postgres → migrate (ต้อง exit 0) → redis,
+mock-pay, mock-game → api-1/api-2 → proxy → web โดย api และ worker เชื่อมต่อในชื่อ `inblack_app`
+ซึ่งเป็น role ที่ไม่ได้เป็นเจ้าของอะไรเลยและปิด trigger ไม่ได้ มีแค่ `migrate` ที่ใช้ role เจ้าของ (ADR 0001)
 
-## Payment → fulfillment → live status
+<a id="payment--fulfillment--live-status"></a>
+## การชำระเงิน → fulfillment → สถานะแบบสด
 
 ```mermaid
 sequenceDiagram
@@ -61,78 +63,80 @@ sequenceDiagram
   participant MG as mock-game
 
   B->>A1: POST /api/v1/orders (Idempotency-Key)
-  A1->>PG: one tx: key row, email lock, stock and voucher conditional UPDATE, order PENDING_PAYMENT
-  A1-->>B: 201 order + mock-pay checkout URL
-  B->>A1: POST /orders/track, then GET /orders/{id}/events?token=
+  A1->>PG: tx เดียว: แถว key, lock อีเมล, conditional UPDATE stock และ voucher, ออเดอร์ PENDING_PAYMENT
+  A1-->>B: 201 ออเดอร์ + checkout URL ของ mock-pay
+  B->>A1: POST /orders/track แล้ว GET /orders/{id}/events?token=
   A1->>R: SUBSCRIBE order:{id}
-  A1->>PG: read order_events WHERE id > last
-  B->>MP: pay (scenario button)
-  MP->>A2: POST /webhooks/payment, X-IBM-Signature (may repeat)
-  A2->>A2: verify HMAC over raw body, 300 s skew
-  A2->>PG: one tx: INSERT webhook_events ON CONFLICT DO NOTHING, PAID then IN_QUEUE, outbox job
-  A2-->>MP: 200 (duplicate copies also 200)
-  PG-->>W: NOTIFY order_events (on commit)
+  A1->>PG: อ่าน order_events WHERE id > last
+  B->>MP: จ่ายเงิน (ปุ่ม scenario)
+  MP->>A2: POST /webhooks/payment, X-IBM-Signature (อาจซ้ำ)
+  A2->>A2: ตรวจ HMAC บน raw body, skew 300 s
+  A2->>PG: tx เดียว: INSERT webhook_events ON CONFLICT DO NOTHING, PAID แล้ว IN_QUEUE, งาน outbox
+  A2-->>MP: 200 (สำเนาซ้ำก็ได้ 200)
+  PG-->>W: NOTIFY order_events (ตอน commit)
   W->>R: PUBLISH order:{id}
   R-->>A1: message
-  A1->>PG: read new order_events
+  A1->>PG: อ่าน order_events ใหม่
   A1-->>B: SSE event (id = order_events.id)
-  W->>PG: claim job FOR UPDATE SKIP LOCKED, lease, IN_PROGRESS
+  W->>PG: claim งาน FOR UPDATE SKIP LOCKED, lease, IN_PROGRESS
   W->>MG: GET /topups/{order_id}:{sku}
-  MG-->>W: 404 (not delivered yet)
-  W->>PG: fulfillment_attempts IN_FLIGHT (commit before POST)
+  MG-->>W: 404 (ยังไม่ได้ส่ง)
+  W->>PG: fulfillment_attempts IN_FLIGHT (commit ก่อน POST)
   W->>MG: POST /topups reference={order_id}:{sku}
-  MG-->>W: 200, or timeout although it committed
-  Note over W,MG: on timeout: wait FULFILLMENT_SETTLE_MS, GET again, POST only after a clear 404
-  W->>PG: one tx: COMPLETED, order_events, close job
+  MG-->>W: 200 หรือ timeout ทั้งที่ commit แล้ว
+  Note over W,MG: ถ้า timeout: รอ FULFILLMENT_SETTLE_MS แล้ว GET อีกครั้ง POST เฉพาะเมื่อได้ 404 ชัดเจน
+  W->>PG: tx เดียว: COMPLETED, order_events, ปิดงาน
   PG-->>W: NOTIFY
   W->>R: PUBLISH order:{id}
   R-->>A1: message
   A1-->>B: SSE COMPLETED
 ```
 
-The webhook lands on whichever replica nginx picks; the stream on the other replica still sees it
-because the signal comes from Postgres `NOTIFY` (fired on commit by a trigger, for every writer),
-not from the replica that handled the request. If Redis is down each stream polls Postgres every
-second, otherwise every 5 seconds as a safety net (ADR 0003, `apps/api/src/realtime/`).
+webhook จะไปตกที่ replica ใดก็ได้ที่ nginx เลือก แต่ stream ที่อยู่บนอีก replica ก็ยังเห็น
+เพราะสัญญาณมาจาก `NOTIFY` ของ Postgres (ยิงตอน commit โดย trigger สำหรับผู้เขียนทุกราย)
+ไม่ใช่มาจาก replica ที่รับ request นั้น ถ้า Redis ล่ม แต่ละ stream จะ poll Postgres ทุก 1 วินาที
+ถ้าไม่ล่มจะ poll ทุก 5 วินาทีเป็นตาข่ายกันพลาด (ADR 0003, `apps/api/src/realtime/`)
 
-## Failure handling
+<a id="failure-handling"></a>
+## การรับมือความล้มเหลว
 
-| Failure | What happens | Why no money or goods are lost | Ref |
+| จุดที่พัง | ระบบทำอะไร | ทำไมไม่เสียเงินหรือของ | อ้างอิง |
 |---|---|---|---|
-| An API replica dies | nginx sends traffic to the other one. An in-flight request's transaction rolls back, including its idempotency key, so the client's retry runs again cleanly. Open SSE streams reconnect with `Last-Event-ID` and get exactly the missed events. | Nothing is half-written: key, reservation, order and events are one transaction. | 0001, 0003 |
-| Worker dies before POSTing to mock-game | The job's lease (`available_at`) expires and the next poll claims it again. | Nothing was sent; the job is a row in Postgres. | 0002 |
-| Worker dies during or after the POST | The `IN_FLIGHT` attempt is taken over only after the lease, which is longer than POST timeout + settle + GET timeout. The new claim GETs the reference first and only POSTs after a clear 404. | One reference `<order_id>:<sku>` per line, never changed; audit: 100 orders, 3 worker kills, no reference above 1. | 0002 |
-| mock-game commits but times out (`SUCCESS_BUT_TIMEOUT`) | Attempt recorded `UNKNOWN`; wait `FULFILLMENT_SETTLE_MS` (5 s), then GET finds the top-up and the order completes. | A timeout means "unknown", and unknown never leads to a POST. | 0002 |
-| mock-game down or GET never answers | Each claim retries with backoff; after 5 claims the order goes to `NEEDS_REVIEW` with a dead letter. | No POST without a confirmed 404. A person decides (RUNBOOK). | 0002 |
-| mock-game refuses every POST | After 3 POSTs and a final confirming GET (404): `FAILED`, dead letter and automatic full refund in one transaction; stock and voucher are returned. | The refund is only automatic when GET confirmed nothing was delivered. Partial delivery goes to `NEEDS_REVIEW`. | 0002, 0004 |
-| Webhook duplicated | `webhook_events.event_id` primary key: copies block on the index, then answer 200 `duplicate`. A new `event_id` for an already paid order writes `payment.duplicate` and reconciliation reports it. | The status change and job are written once. | 0002 |
-| Webhook out of order (`failed` after `succeeded`) | No edge from a paid status to `PAYMENT_FAILED`; recorded as `payment.failed_ignored`. | Status never moves backwards. | 0002, 0004 |
-| Webhook slow / after `EXPIRED` | Re-acquires stock, per-email limit and voucher under the same locks as order creation; on success `EXPIRED → PAID`, otherwise a full refund and `REFUNDED` once settled. Wrong amount → `NEEDS_REVIEW`. | Re-checking all three limits keeps invariants 1–4 intact for late money. | 0004 |
-| Bad signature or clock skew > 300 s | 401 `INVALID_SIGNATURE`, nothing stored; the provider retries. | Unsigned input never changes state. | 0002 |
-| Redis down | Streams fall back to 1 s polling; the worker still polls the outbox every second; `/readyz` answers 503; track and per-IP admin login limits fail open. | Redis holds no data. OTP lock and per-email admin login limit are in Postgres. | 0003, 0005 |
-| Postgres down | API answers 503 problem+json; webhooks get 5xx so mock-pay retries (8 times, about 4 minutes); the worker cannot claim jobs. Everything resumes from the DB when it is back. | Nothing is acknowledged without a commit. A webhook that outlives mock-pay's retries shows up in reconciliation as `MISSING_IN_SYSTEM`. | RUNBOOK |
-| Two refunds at once (two admin sessions) | The order row lock serialises them; `planRefund` checks the remainder; `CHECK (refunded_satang <= paid_satang)`. Refunds are sent by the worker with an idempotent `refund_id`. | Audit s3: never above the paid amount, DB = provider. | 0002 |
+| API replica หนึ่งตาย | nginx ส่ง traffic ไปอีกตัว transaction ของ request ที่ค้างอยู่จะ rollback รวมถึง idempotency key ด้วย ดังนั้นเมื่อ client retry ก็จะรันใหม่ได้สะอาด SSE stream ที่เปิดอยู่จะเชื่อมต่อใหม่พร้อม `Last-Event-ID` และได้รับเฉพาะ event ที่พลาดไปพอดี | ไม่มีอะไรเขียนค้างครึ่งทาง: key, การจอง, ออเดอร์ และ event อยู่ใน transaction เดียว | 0001, 0003 |
+| Worker ตายก่อน POST ไป mock-game | lease ของงาน (`available_at`) หมดอายุ แล้วรอบ poll ถัดไปจะ claim งานนั้นอีกครั้ง | ยังไม่ได้ส่งอะไรออกไป งานเป็นแถวหนึ่งใน Postgres | 0002 |
+| Worker ตายระหว่างหรือหลัง POST | attempt ที่เป็น `IN_FLIGHT` จะถูกรับช่วงต่อหลัง lease หมดเท่านั้น ซึ่ง lease ยาวกว่า POST timeout + settle + GET timeout การ claim ใหม่จะ GET reference ก่อน และ POST เฉพาะเมื่อได้ 404 ชัดเจน | หนึ่ง reference `<order_id>:<sku>` ต่อหนึ่งบรรทัด ไม่เปลี่ยนเลย ผล audit: 100 ออเดอร์, kill worker 3 ครั้ง, ไม่มี reference ใดเกิน 1 | 0002 |
+| mock-game commit แล้วแต่ timeout (`SUCCESS_BUT_TIMEOUT`) | บันทึก attempt เป็น `UNKNOWN` รอ `FULFILLMENT_SETTLE_MS` (5 s) แล้ว GET เจอ top-up และออเดอร์ complete | timeout แปลว่า "ไม่รู้" และ "ไม่รู้" ไม่มีวันนำไปสู่การ POST | 0002 |
+| mock-game ล่ม หรือ GET ไม่ตอบเลย | แต่ละ claim retry พร้อม backoff หลังครบ 5 claim ออเดอร์จะไป `NEEDS_REVIEW` พร้อม dead letter | ไม่มี POST ถ้ายังไม่ยืนยันว่าเป็น 404 ให้คนตัดสินใจ (RUNBOOK) | 0002 |
+| mock-game ปฏิเสธทุก POST | หลัง POST 3 ครั้งและ GET ยืนยันรอบสุดท้าย (404): `FAILED`, dead letter และ refund เต็มจำนวนอัตโนมัติใน transaction เดียว พร้อมคืน stock และ voucher | refund อัตโนมัติเฉพาะเมื่อ GET ยืนยันว่าไม่มีอะไรถูกส่ง ถ้าส่งไปบางส่วนจะไป `NEEDS_REVIEW` | 0002, 0004 |
+| Webhook ซ้ำ | primary key `webhook_events.event_id`: สำเนาจะรอที่ index แล้วตอบ 200 `duplicate` ถ้าเป็น `event_id` ใหม่สำหรับออเดอร์ที่จ่ายแล้ว จะเขียน `payment.duplicate` และ reconciliation จะรายงาน | การเปลี่ยนสถานะและงานถูกเขียนครั้งเดียว | 0002 |
+| Webhook สลับลำดับ (`failed` หลัง `succeeded`) | ไม่มี edge จากสถานะที่จ่ายแล้วไป `PAYMENT_FAILED` จะบันทึกเป็น `payment.failed_ignored` | สถานะไม่มีวันถอยหลัง | 0002, 0004 |
+| Webhook ช้า / มาหลัง `EXPIRED` | จอง stock, ลิมิตต่ออีเมล และ voucher ใหม่ภายใต้ lock ชุดเดียวกับตอนสร้างออเดอร์ ถ้าสำเร็จ `EXPIRED → PAID` ไม่เช่นนั้น refund เต็มจำนวนและเป็น `REFUNDED` เมื่อ settle แล้ว ยอดเงินผิด → `NEEDS_REVIEW` | การตรวจลิมิตทั้งสามซ้ำทำให้ invariant 1–4 ยังคงอยู่แม้เงินมาช้า | 0004 |
+| ลายเซ็นผิด หรือ clock skew > 300 s | 401 `INVALID_SIGNATURE` ไม่บันทึกอะไรเลย ผู้ให้บริการจะ retry | input ที่ไม่มีลายเซ็นไม่มีวันเปลี่ยนสถานะ | 0002 |
+| Redis ล่ม | stream ถอยไปใช้ polling ทุก 1 s worker ยังคง poll outbox ทุกวินาที `/readyz` ตอบ 503 ลิมิตของ track และลิมิต admin login ต่อ IP จะ fail open | Redis ไม่ได้เก็บข้อมูล ส่วน OTP lock และลิมิต admin login ต่ออีเมลอยู่ใน Postgres | 0003, 0005 |
+| Postgres ล่ม | API ตอบ 503 problem+json, webhook ได้ 5xx ทำให้ mock-pay retry (8 ครั้ง ประมาณ 4 นาที), worker claim งานไม่ได้ ทุกอย่างกลับมาทำต่อจาก DB เมื่อ Postgres กลับมา | ไม่มีอะไรถูกตอบรับโดยไม่มี commit webhook ที่ค้างนานเกินรอบ retry ของ mock-pay จะไปโผล่ใน reconciliation เป็น `MISSING_IN_SYSTEM` | RUNBOOK |
+| refund สองรายการพร้อมกัน (admin สอง session) | row lock ของออเดอร์ทำให้ทำทีละรายการ `planRefund` ตรวจยอดคงเหลือ และมี `CHECK (refunded_satang <= paid_satang)` refund ถูกส่งโดย worker พร้อม `refund_id` ที่ idempotent | Audit s3: ไม่เคยเกินยอดที่จ่าย, DB = ผู้ให้บริการ | 0002 |
 
-`docker kill` of any container is not undone by `restart: unless-stopped`; it stays down until
-`docker compose start <service>` (or `up -d`). All the recovery paths above start when the
-process comes back.
+`docker kill` คอนเทนเนอร์ใดก็ตามจะไม่ถูกกู้กลับโดย `restart: unless-stopped` มันจะล่มอยู่อย่างนั้นจนกว่าจะสั่ง
+`docker compose start <service>` (หรือ `up -d`) เส้นทางกู้คืนทั้งหมดข้างบนจะเริ่มทำงานเมื่อ
+process กลับมา
 
-## Data model and the constraints that hold the invariants
+<a id="data-model-and-the-constraints-that-hold-the-invariants"></a>
+## Data model และ constraint ที่ค้ำ invariant
 
-| Table | Purpose | Guard |
+| ตาราง | หน้าที่ | ตัวป้องกัน |
 |---|---|---|
-| `products` | catalog, `stock` NULL = unlimited | `CHECK (stock IS NULL OR stock >= 0)`; stock taken with `UPDATE ... WHERE stock >= $n` |
-| `vouchers`, `voucher_redemptions` | SAVE10 / FLAT20 | `CHECK (used_count <= max_uses)`; partial unique index one redemption per email |
-| `orders` | one row per order, all money in `bigint` satang | id checksum `CHECK`; `net = subtotal − discount`; `total = net + fee`; `refunded_satang <= paid_satang` |
-| `order_items` | locked lines with price and name snapshot | `line_total = unit_price × qty`; append-only trigger |
-| `order_status_transitions` | allowed edges (same list as `packages/domain/src/order-state.ts`, drift test in `db/src/transitions.spec.ts`) | status trigger rejects any other move (IB001) |
-| `order_events` | append-only timeline, SSE ids | written by the status trigger in the same transaction; `NOTIFY` on insert |
-| `idempotency_keys` | stored response text for byte-identical replay | primary key `(scope, key)`, kept 24 h |
-| `webhook_events` | every received webhook | primary key `event_id` |
-| `outbox`, `dead_letters` | jobs written with the state change; failed jobs | claim with `SKIP LOCKED`, fencing by `(id, attempts)`; one dead letter per job |
-| `fulfillment_attempts` | every POST to mock-game | partial unique indexes: one `IN_FLIGHT` per order, one `SUCCEEDED` per `(order_id, reference)` |
-| `refunds`, `order_hold_releases` | refunds; whether stock/voucher are held or released | unique `provider_event_id`; holds released only once |
-| `customer_otps`, `customer_sessions`, `admin_sessions`, `admin_login_attempts`, `admin_audit_logs` | auth and audit | hashed tokens and codes only |
+| `products` | catalog, `stock` NULL = ไม่จำกัด | `CHECK (stock IS NULL OR stock >= 0)`; ตัด stock ด้วย `UPDATE ... WHERE stock >= $n` |
+| `vouchers`, `voucher_redemptions` | SAVE10 / FLAT20 | `CHECK (used_count <= max_uses)`; partial unique index ใช้ได้หนึ่งครั้งต่ออีเมล |
+| `orders` | หนึ่งแถวต่อหนึ่งออเดอร์ เงินทั้งหมดเป็น `bigint` สตางค์ | `CHECK` checksum ของ id; `net = subtotal − discount`; `total = net + fee`; `refunded_satang <= paid_satang` |
+| `order_items` | รายการที่ล็อกราคาและ snapshot ชื่อไว้ | `line_total = unit_price × qty`; trigger แบบ append-only |
+| `order_status_transitions` | edge ที่อนุญาต (รายการเดียวกับ `packages/domain/src/order-state.ts`, มี drift test ใน `db/src/transitions.spec.ts`) | status trigger ปฏิเสธการเปลี่ยนแบบอื่นทั้งหมด (IB001) |
+| `order_events` | timeline แบบ append-only, เป็น id ของ SSE | เขียนโดย status trigger ใน transaction เดียวกัน; `NOTIFY` ตอน insert |
+| `idempotency_keys` | เก็บข้อความ response ไว้ replay แบบ byte-identical | primary key `(scope, key)`, เก็บไว้ 24 h |
+| `webhook_events` | webhook ทุกตัวที่ได้รับ | primary key `event_id` |
+| `outbox`, `dead_letters` | งานที่เขียนพร้อมการเปลี่ยนสถานะ; งานที่ล้มเหลว | claim ด้วย `SKIP LOCKED`, fencing ด้วย `(id, attempts)`; หนึ่ง dead letter ต่อหนึ่งงาน |
+| `fulfillment_attempts` | ทุกการ POST ไป mock-game | partial unique index: หนึ่ง `IN_FLIGHT` ต่อออเดอร์, หนึ่ง `SUCCEEDED` ต่อ `(order_id, reference)` |
+| `refunds`, `order_hold_releases` | refund; stock/voucher ยังถูกถือไว้หรือคืนแล้ว | unique `provider_event_id`; คืนของที่ถือไว้ได้ครั้งเดียว |
+| `customer_otps`, `customer_sessions`, `admin_sessions`, `admin_login_attempts`, `admin_audit_logs` | auth และ audit | เก็บเฉพาะ token และรหัสที่ hash แล้ว |
 
-Migrations: `db/migrations/0001`–`0010`. Lock order for every writer (ADR 0001): idempotency key →
-email advisory lock → order row → products by SKU → voucher.
+Migration: `db/migrations/0001`–`0010` ลำดับ lock สำหรับผู้เขียนทุกราย (ADR 0001): idempotency key →
+email advisory lock → แถวออเดอร์ → products ตาม SKU → voucher

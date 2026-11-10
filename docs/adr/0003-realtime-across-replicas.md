@@ -1,54 +1,48 @@
-# ADR 0003: Real-time order status across replicas
+# ADR 0003: สถานะออเดอร์แบบ real-time ข้าม replica
 
-Status: draft (P2)
+สถานะ (Status): draft (P2)
 
-## Context
+## บริบท (Context)
 
-Spec 8.3: a customer whose tracking page holds an SSE connection on api-1 must see a status
-change within 2 seconds, even when the webhook landed on api-2 or the worker made the change.
-After a dropped connection, `Last-Event-ID` must return the missed events with none repeated and
-none skipped. Postgres is the source of truth and Redis may disappear at any time.
+สเปกข้อ 8.3: ลูกค้าที่หน้า tracking ถือ SSE connection อยู่บน api-1 ต้องเห็นการเปลี่ยนสถานะภายใน 2 วินาที
+แม้ webhook จะเข้า api-2 หรือ worker เป็นผู้เปลี่ยน หลัง connection หลุด `Last-Event-ID` ต้องคืน event ที่พลาดไป
+โดยไม่ซ้ำและไม่ข้าม Postgres คือ source of truth และ Redis หายได้ทุกเมื่อ
 
-## Decision
+## การตัดสินใจ (Decision)
 
-1. **Events come only from `order_events`.** The row id is the SSE `id`. A stream keeps the last
-   id it sent and every read is `WHERE order_id = $1 AND id > $last ORDER BY id`. Ids of one
-   order commit in id order because each insert holds the order row's lock (0002_orders.sql),
-   so "greater than the last one sent" cannot skip a row that commits later.
-2. **Signals are hints, never data.** A trigger on `order_events` sends `NOTIFY order_events`,
-   which Postgres delivers only on commit. The worker LISTENs and publishes `order:{id}` to Redis.
-   Each API replica subscribes to `order:{id}` while it holds a stream of that order and
-   unsubscribes when the last one closes. A message just makes the stream read Postgres again.
-   NOTIFY fires for every writer (API, worker, SQL functions, manual fixes), so no code path can
-   forget to publish, and a crash after commit cannot lose the signal the way a publish in
-   application code could.
-3. **Polling covers lost signals.** While the replica's Redis subscriber is not `ready`, each
-   stream reads Postgres every second. With Redis up it still reads every 5 seconds, which
-   covers a worker restart or a message lost in transit. When Redis comes back every stream
-   reads once at once.
-4. **Subscribe, then read.** A new stream subscribes before its first read, so an event that
-   commits in between is either in that read or announced after it. Reads never overlap per
-   stream; a signal during a read makes it read once more.
-5. **Access without the email in a URL.** `POST /orders/track` returns `events_token`, an
-   HMAC-SHA256 over order id and expiry (1 hour) with `ORDER_EVENTS_TOKEN_SECRET`, compared with
-   `timingSafeEqual`. Any failure, a bad checksum and an unknown order give the same 404.
+1. **Event มาจาก `order_events` เท่านั้น** id ของแถวคือ SSE `id` แต่ละ stream จำ id ล่าสุดที่ส่งไป
+   และทุกการอ่านคือ `WHERE order_id = $1 AND id > $last ORDER BY id` id ของออเดอร์เดียวกัน commit
+   ตามลำดับ id เพราะทุกการ insert ถือล็อกแถวออเดอร์ (0002_orders.sql) เงื่อนไข "มากกว่าตัวล่าสุดที่ส่ง"
+   จึงไม่ข้ามแถวที่ commit ทีหลัง
+2. **Signal เป็นแค่คำใบ้ ไม่ใช่ข้อมูล** trigger บน `order_events` ส่ง `NOTIFY order_events` ซึ่ง Postgres
+   ส่งเฉพาะตอน commit worker ทำ LISTEN แล้ว publish `order:{id}` ไป Redis แต่ละ API replica subscribe
+   `order:{id}` ขณะที่ถือ stream ของออเดอร์นั้น และ unsubscribe เมื่อ stream สุดท้ายปิด ข้อความแค่ทำให้
+   stream อ่าน Postgres ใหม่ NOTIFY ยิงสำหรับทุกตัวที่เขียน (API, worker, SQL function, การแก้ด้วยมือ)
+   จึงไม่มีเส้นทางโค้ดไหนลืม publish และการ crash หลัง commit ไม่ทำให้ signal หายแบบที่ publish ในโค้ดแอปอาจหาย
+3. **Polling ครอบคลุม signal ที่หาย** ขณะที่ Redis subscriber ของ replica ยังไม่ `ready` แต่ละ stream อ่าน
+   Postgres ทุก 1 วินาที เมื่อ Redis ปกติก็ยังอ่านทุก 5 วินาที เพื่อครอบคลุม worker restart หรือข้อความที่หาย
+   ระหว่างทาง เมื่อ Redis กลับมา ทุก stream อ่านหนึ่งครั้งทันที
+4. **Subscribe ก่อน แล้วค่อยอ่าน** stream ใหม่ subscribe ก่อนการอ่านครั้งแรก event ที่ commit ระหว่างนั้นจึง
+   อยู่ในการอ่านนั้น หรือถูกแจ้งหลังจากนั้น การอ่านไม่ซ้อนกันในแต่ละ stream ถ้ามี signal ระหว่างอ่านจะอ่านอีกหนึ่งครั้ง
+5. **เข้าถึงโดยไม่มีอีเมลใน URL** `POST /orders/track` คืน `events_token` เป็น HMAC-SHA256 ของ order id และ
+   เวลาหมดอายุ (1 ชั่วโมง) ด้วย `ORDER_EVENTS_TOKEN_SECRET` เทียบด้วย `timingSafeEqual` ความล้มเหลวทุกแบบ,
+   checksum ผิด และออเดอร์ที่ไม่รู้จัก ได้ 404 เหมือนกัน
 
-## Consequences
+## ผลที่ตามมา (Consequences)
 
-- Latency on the normal path is commit, NOTIFY, worker, Redis, API: tens of milliseconds in
-  `scripts/audit/sse.mjs`. With Redis stopped it is bounded by the 1 second poll (981 ms worst).
-- If the worker is down, signals stop and streams fall back to the 5 second safety poll. The
-  worker being down also stops fulfilment, so only the PAID step is affected in practice.
-- Every open stream costs one indexed query per 5 seconds (per second during a Redis outage).
-  At a few thousand concurrent streams this is still small; beyond that, raise the safety
-  interval or move to one poll per replica for all its orders.
-- The token cannot be revoked before it expires. It reveals only status changes of one order,
-  which the holder already proved access to.
+- latency ในเส้นทางปกติคือ commit, NOTIFY, worker, Redis, API: หลักสิบมิลลิวินาทีใน
+  `scripts/audit/sse.mjs` เมื่อหยุด Redis จะถูกจำกัดด้วย poll 1 วินาที (แย่สุด 981 ms)
+- ถ้า worker ล่ม signal หยุด และ stream ถอยไปใช้ safety poll 5 วินาที แต่ worker ล่มก็หยุด fulfilment ด้วย
+  ในทางปฏิบัติจึงกระทบเฉพาะขั้น PAID
+- ทุก stream ที่เปิดอยู่มีต้นทุน query ที่มี index หนึ่งครั้งต่อ 5 วินาที (ต่อวินาทีระหว่าง Redis ล่ม)
+  ที่ระดับไม่กี่พัน stream พร้อมกันยังถือว่าน้อย ถ้าเกินกว่านั้นให้เพิ่มช่วง safety หรือเปลี่ยนเป็น poll
+  ครั้งเดียวต่อ replica สำหรับทุกออเดอร์ของมัน
+- token เพิกถอนก่อนหมดอายุไม่ได้ แต่เปิดเผยแค่การเปลี่ยนสถานะของออเดอร์เดียว ซึ่งผู้ถือพิสูจน์สิทธิ์เข้าถึงมาแล้ว
 
-## Alternatives considered
+## ทางเลือกที่พิจารณา (Alternatives considered)
 
-- **Publish to Redis from application code after commit.** Needs a hook on every writer and
-  loses the signal if the process dies between commit and publish.
-- **Each API replica LISTENs on Postgres directly.** Would work without Redis, but the spec asks
-  for Redis pub/sub, and it holds one extra Postgres connection per replica.
-- **Email in the query string.** Ends up in proxy and browser logs, so rejected.
+- **Publish ไป Redis จากโค้ดแอปหลัง commit** ต้องมี hook ในทุกตัวที่เขียน และ signal หายถ้า process
+  ตายระหว่าง commit กับ publish
+- **ให้แต่ละ API replica LISTEN Postgres โดยตรง** ใช้ได้โดยไม่ต้องมี Redis แต่สเปกขอ Redis pub/sub
+  และต้องถือ Postgres connection เพิ่มหนึ่งตัวต่อ replica
+- **อีเมลใน query string** จะไปอยู่ใน log ของ proxy และ browser จึงปฏิเสธ

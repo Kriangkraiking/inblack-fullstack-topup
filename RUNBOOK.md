@@ -1,10 +1,10 @@
 # Runbook
 
-For on-call. Commands assume the compose stack from the repo root (container names `inblack-*`).
-Every command below was run against the local stack at `4407e13` unless it is marked
-**not run** (those change money or state). Money columns are satang.
+สำหรับทีม on-call คำสั่งทั้งหมดสมมติว่ารัน compose stack จาก root ของ repo (ชื่อคอนเทนเนอร์ `inblack-*`)
+ทุกคำสั่งด้านล่างรันจริงกับ stack บนเครื่องที่ commit `4407e13` ยกเว้นที่ระบุว่า
+**not run** (คำสั่งเหล่านั้นเปลี่ยนเงินหรือสถานะ) คอลัมน์เงินมีหน่วยเป็นสตางค์
 
-Shortcuts used below:
+ทางลัดที่ใช้ด้านล่าง:
 
 ```sh
 # SQL as the table owner (test credentials from docker-compose.yml)
@@ -17,16 +17,18 @@ curl -s -c fin.jar -H 'Content-Type: application/json' -H 'Origin: http://localh
 # every cookie request that changes data needs -b fin.jar -H 'Origin: http://localhost:3000'
 ```
 
-Admin login is limited to 10 attempts/min per IP and 5 per email per 15 minutes (429 `LOGIN_LOCKED`).
+admin login จำกัด 10 ครั้ง/นาทีต่อ IP และ 5 ครั้งต่ออีเมลต่อ 15 นาที (429 `LOGIN_LOCKED`)
 
-## General rules
+<a id="general-rules"></a>
+## กฎทั่วไป
 
-- **Postgres is the truth.** Never "fix" by editing Redis or by re-sending to mock-game by hand.
-- **Never POST to mock-game yourself.** Check `GET http://localhost:4020/topups/<order_id>:<sku>` first; the worker does the same.
-- **Status changes go through `transition_order()`**, which writes the `order_events` row and is checked against the allowed edges. A plain `UPDATE orders SET status` is refused by the trigger unless `app.actor`/`app.reason` are set; use the function.
-- **`docker kill` does not come back on its own.** `restart: unless-stopped` does not restart a killed container (tested with every restart policy). Bring it back with `docker compose start <service>` or `docker compose up -d`.
+- **Postgres คือความจริง** ห้าม "แก้" ด้วยการแก้ Redis หรือส่งไป mock-game ใหม่ด้วยมือ
+- **ห้าม POST ไป mock-game เอง** ตรวจ `GET http://localhost:4020/topups/<order_id>:<sku>` ก่อนเสมอ worker ก็ทำแบบเดียวกัน
+- **การเปลี่ยนสถานะต้องผ่าน `transition_order()`** ซึ่งเขียนแถว `order_events` และตรวจกับ edge ที่อนุญาต การสั่ง `UPDATE orders SET status` ตรง ๆ จะถูก trigger ปฏิเสธ เว้นแต่ตั้ง `app.actor`/`app.reason` ไว้ ให้ใช้ function นี้
+- **`docker kill` ไม่กลับมาเอง** `restart: unless-stopped` ไม่ restart คอนเทนเนอร์ที่ถูก kill (ทดสอบแล้วกับทุก restart policy) ให้นำกลับมาด้วย `docker compose start <service>` หรือ `docker compose up -d`
 
-## Health and metrics
+<a id="health-and-metrics"></a>
+## Health และ metrics
 
 ```sh
 docker compose ps                                   # every service should be (healthy)
@@ -36,20 +38,21 @@ docker compose exec -T api-1 wget -qO- localhost:3000/metrics    # /metrics is 4
 docker compose exec -T api-2 wget -qO- localhost:3000/metrics
 ```
 
-`http_request_duration_seconds` is per replica (sum both). The `inblack_*` gauges come from
-Postgres and are the same on both: `inblack_orders{status=...}`, `inblack_queue_depth{topic=...}`,
+`http_request_duration_seconds` แยกต่อ replica (ต้องรวมสองตัว) ส่วน gauge `inblack_*` มาจาก
+Postgres และเท่ากันทั้งสองตัว: `inblack_orders{status=...}`, `inblack_queue_depth{topic=...}`,
 `inblack_fulfillment_retries`, `inblack_outbox_job_retries`, `inblack_dead_letters{state="open"}`,
-`inblack_metrics_db_up`. The worker has no HTTP port; its health is the heartbeat file checked
-by compose (`/tmp/worker-heartbeat`, stale after 90 s).
+`inblack_metrics_db_up` worker ไม่มีพอร์ต HTTP สุขภาพของมันดูจากไฟล์ heartbeat ที่ compose ตรวจ
+(`/tmp/worker-heartbeat`, ถือว่าค้างหลัง 90 s)
 
-Watch for: `inblack_dead_letters{state="open"} > 0`, `inblack_orders{status="NEEDS_REVIEW"}`
-growing, `inblack_queue_depth` growing while the worker is healthy, `/readyz` 503.
+สิ่งที่ต้องเฝ้าดู: `inblack_dead_letters{state="open"} > 0`, `inblack_orders{status="NEEDS_REVIEW"}`
+เพิ่มขึ้นเรื่อย ๆ, `inblack_queue_depth` เพิ่มขึ้นทั้งที่ worker healthy, `/readyz` ตอบ 503
 
-## Following one request (logs)
+<a id="following-one-request-logs"></a>
+## ติดตาม request เดียว (logs)
 
-Logs are JSON lines with `request_id`. nginx sets `X-Request-Id` if the client sent none (and
-returns it in the response). The webhook stores it in the outbox job, and the worker passes it to
-mock-game, so one payment can be followed end to end:
+Log เป็น JSON ทีละบรรทัดพร้อม `request_id` nginx ตั้ง `X-Request-Id` ให้ถ้า client ไม่ได้ส่งมา (และ
+ส่งกลับใน response) webhook เก็บค่านี้ไว้ในงาน outbox และ worker ส่งต่อให้ mock-game
+จึงติดตามการจ่ายเงินหนึ่งครั้งได้ตั้งแต่ต้นจนจบ:
 
 ```sh
 docker compose logs --no-log-prefix api-1 api-2 worker mock-game | grep <request_id>
@@ -57,11 +60,12 @@ docker compose logs --no-log-prefix api-1 api-2 worker mock-game | grep <request
 docker compose logs --no-log-prefix api-1 api-2 | grep '"route":"/api/v1/webhooks/payment"' | grep '"status":401'
 ```
 
-Emails in logs are masked; tokens, cookies and signatures are never logged.
+อีเมลใน log ถูก mask ส่วน token, cookie และลายเซ็นไม่ถูก log เลย
 
-## Orders stuck in NEEDS_REVIEW
+<a id="orders-stuck-in-needs_review"></a>
+## ออเดอร์ค้างใน NEEDS_REVIEW
 
-**Symptom:** `inblack_orders{status="NEEDS_REVIEW"}` rising; admin list filter `NEEDS_REVIEW`.
+**อาการ:** `inblack_orders{status="NEEDS_REVIEW"}` เพิ่มขึ้น; ใช้ตัวกรอง `NEEDS_REVIEW` ในรายการของ admin
 
 ```sh
 curl -s -b fin.jar 'http://localhost:8080/api/v1/admin/orders?status=NEEDS_REVIEW'
@@ -73,41 +77,43 @@ ibsql -c "SELECT reference, attempt_no, status, http_status, error FROM fulfillm
 curl -s http://localhost:4020/topups/<order_id>:<sku>      # for every line of the order
 ```
 
-The last event's `reason` says why. Decide per order:
+`reason` ของ event ล่าสุดบอกสาเหตุ ตัดสินใจทีละออเดอร์:
 
-| Finding | Action |
+| สิ่งที่พบ | การดำเนินการ |
 |---|---|
-| Every line found at mock-game | Mark delivered: `ibsql -c "SELECT transition_order('<id>','NEEDS_REVIEW','COMPLETED','ops:<your name>','confirmed via GET /topups');"` (returns `t` on success). There is no admin endpoint for this edge yet. Then resolve its dead letter (below). |
-| No line found, paid in full, never refunded | Retry: `curl -s -b sup.jar -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' -d '{"reason":"..."}' http://localhost:8080/api/v1/admin/orders/<id>/retry-fulfillment` (support+). It moves NEEDS_REVIEW → PAID → IN_QUEUE, resolves the open dead letter, and the worker GETs before any POST. Refused with 409 if the order has a refund, was not paid in full, or never reached fulfillment. |
-| Wrong amount paid (`paid_satang <> total_satang`) or money on a failed/expired order | Refund what was paid (finance), see "Refund" below. |
-| Some lines delivered, others not | Refund the undelivered lines only (partial refund). Do not retry the whole order. |
+| ทุกบรรทัดพบที่ mock-game | ทำเครื่องหมายว่าส่งแล้ว: `ibsql -c "SELECT transition_order('<id>','NEEDS_REVIEW','COMPLETED','ops:<your name>','confirmed via GET /topups');"` (คืน `t` เมื่อสำเร็จ) ยังไม่มี admin endpoint สำหรับ edge นี้ จากนั้น resolve dead letter ของมัน (ด้านล่าง) |
+| ไม่พบบรรทัดใดเลย, จ่ายครบ, ไม่เคย refund | Retry: `curl -s -b sup.jar -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' -d '{"reason":"..."}' http://localhost:8080/api/v1/admin/orders/<id>/retry-fulfillment` (support ขึ้นไป) จะย้าย NEEDS_REVIEW → PAID → IN_QUEUE, resolve dead letter ที่เปิดอยู่ และ worker จะ GET ก่อน POST ทุกครั้ง ถูกปฏิเสธด้วย 409 ถ้าออเดอร์มี refund, จ่ายไม่ครบ หรือไม่เคยถึงขั้น fulfillment |
+| จ่ายยอดผิด (`paid_satang <> total_satang`) หรือมีเงินเข้าในออเดอร์ที่ failed/expired | refund ยอดที่จ่ายมา (finance) ดูหัวข้อ "Refund" ด้านล่าง |
+| ส่งไปบางบรรทัด บางบรรทัดยังไม่ส่ง | refund เฉพาะบรรทัดที่ยังไม่ส่ง (partial refund) ห้าม retry ทั้งออเดอร์ |
 
+<a id="dead-letters-dlq"></a>
 ## Dead letters (DLQ)
 
-**Symptom:** `inblack_dead_letters{state="open"} > 0`.
+**อาการ:** `inblack_dead_letters{state="open"} > 0`
 
 ```sh
 ibsql -c "SELECT id, topic, aggregate_id, attempts, last_error, created_at FROM dead_letters WHERE resolved_at IS NULL ORDER BY id;"
 ```
 
-- `fulfillment.requested`: the order is in `NEEDS_REVIEW` or `FAILED`. Handle the order as above.
-  `FAILED` orders already got an automatic refund in the same transaction (check `refunds`).
-- `refund.requested`: the refund ran out of retries and stays `PENDING` (the provider may have
-  done it). See "Refund stuck in PENDING".
+- `fulfillment.requested`: ออเดอร์อยู่ใน `NEEDS_REVIEW` หรือ `FAILED` จัดการออเดอร์ตามหัวข้อข้างบน
+  ออเดอร์ที่ `FAILED` ได้ refund อัตโนมัติไปแล้วใน transaction เดียวกัน (ตรวจที่ `refunds`)
+- `refund.requested`: refund retry จนหมดโควตาและค้างเป็น `PENDING` (ผู้ให้บริการอาจทำไปแล้ว)
+  ดู "Refund ค้างใน PENDING"
 
-After handling an order by hand (not via retry-fulfillment, which does this itself):
+หลังจัดการออเดอร์ด้วยมือ (ไม่ใช่ผ่าน retry-fulfillment ซึ่งทำขั้นนี้ให้เอง):
 
 ```sh
 ibsql -c "UPDATE dead_letters SET resolved_at = now(), resolved_by = 'ops:<your name>' WHERE id = <id> AND resolved_at IS NULL;"
 ```
 
-**Not run** in this check (changes state). Escalate if dead letters keep appearing for new orders
-while mock-game and mock-pay are healthy: that is a bug, not an outage.
+**Not run** ในการตรวจครั้งนี้ (เปลี่ยนสถานะ) ให้ escalate ถ้า dead letter ยังเกิดกับออเดอร์ใหม่เรื่อย ๆ
+ทั้งที่ mock-game และ mock-pay healthy: นั่นคือ bug ไม่ใช่ outage
 
+<a id="refund"></a>
 ## Refund
 
-Finance, idempotent by key (the same key returns the same answer byte for byte). Partial amounts
-allowed up to `paid_satang − refunded_satang`. **Not run** here:
+ทำโดย finance, idempotent ตาม key (key เดิมได้คำตอบเดิมทุก byte) refund บางส่วนได้
+ไม่เกิน `paid_satang − refunded_satang` **Not run** ในที่นี้:
 
 ```sh
 curl -s -b fin.jar -H 'Origin: http://localhost:3000' -H 'Content-Type: application/json' \
@@ -115,7 +121,8 @@ curl -s -b fin.jar -H 'Origin: http://localhost:3000' -H 'Content-Type: applicat
   http://localhost:8080/api/v1/admin/orders/<id>/refund          # 202, refund PENDING until settled
 ```
 
-## Refund stuck in PENDING
+<a id="refund-stuck-in-pending"></a>
+## Refund ค้างใน PENDING
 
 ```sh
 ibsql -c "SELECT id, order_id, amount_satang, status, created_at FROM refunds WHERE status = 'PENDING' ORDER BY created_at;"
@@ -123,18 +130,19 @@ ibsql -c "SELECT id, attempts, available_at, last_error FROM outbox WHERE topic 
 docker compose logs --no-log-prefix worker | grep refund | tail -20
 ```
 
-- An open outbox job: it is still retrying (backoff up to 60 s). Check mock-pay health. Wait.
-- No open job: retries ran out with no answer. The amount stays reserved, so no second refund can
-  exceed the paid total. Compare with the provider: `curl -s http://localhost:4010/settlements.csv | grep <order_id>`.
-  If the provider shows the refund, a late `payment.refunded` webhook will settle the row; if it
-  never arrives, escalate (settling by hand means calling `settle_refund` with the provider event id).
-- Do **not** create a new refund for the same money while one is PENDING.
+- มีงาน outbox เปิดอยู่: ยังอยู่ระหว่าง retry (backoff สูงสุด 60 s) ตรวจสุขภาพ mock-pay แล้วรอ
+- ไม่มีงานเปิดอยู่: retry หมดแล้วโดยไม่ได้คำตอบ ยอดเงินยังถูกจองไว้ จึงไม่มี refund ที่สองที่จะ
+  เกินยอดที่จ่ายได้ เทียบกับผู้ให้บริการ: `curl -s http://localhost:4010/settlements.csv | grep <order_id>`
+  ถ้าผู้ให้บริการแสดงว่า refund แล้ว webhook `payment.refunded` ที่มาช้าจะ settle แถวนั้นเอง ถ้า
+  ไม่มาเลยให้ escalate (การ settle ด้วยมือหมายถึงเรียก `settle_refund` พร้อม provider event id)
+- **ห้าม** สร้าง refund ใหม่สำหรับเงินก้อนเดียวกันขณะที่ยังมีรายการ PENDING อยู่
 
-Reconciliation also reports PENDING refunds older than 15 minutes as `STATUS_MISMATCH`.
+Reconciliation จะรายงาน refund ที่ PENDING นานกว่า 15 นาทีเป็น `STATUS_MISMATCH` ด้วย
 
-## Reconciliation mismatch
+<a id="reconciliation-mismatch"></a>
+## Reconciliation ไม่ตรง
 
-Run (finance), with the provider's file:
+รัน (finance) พร้อมไฟล์ของผู้ให้บริการ:
 
 ```sh
 curl -s http://localhost:4010/settlements.csv -o settlements.csv
@@ -143,43 +151,45 @@ curl -s -b fin.jar -H 'Origin: http://localhost:3000' -H 'Content-Type: text/csv
 # {"rows":1,"counts":{"MISSING_IN_SYSTEM":0,"MISSING_AT_PROVIDER":0,"AMOUNT_MISMATCH":0,"STATUS_MISMATCH":0},"mismatches":[]}
 ```
 
-Optional `?from=...&to=...` (ISO time) limits the window. Each mismatch names `event_id` and `order_id`.
+ใส่ `?from=...&to=...` (เวลา ISO) เพื่อจำกัดช่วงเวลาได้ (ไม่บังคับ) แต่ละ mismatch ระบุ `event_id` และ `order_id`
 
-| Type | Meaning | What to do |
+| ประเภท | ความหมาย | สิ่งที่ต้องทำ |
 |---|---|---|
-| `MISSING_IN_SYSTEM` | The provider took money we have no webhook for (webhook lost, e.g. Postgres down longer than mock-pay's ~4 min of retries). | Find the order; if still PENDING_PAYMENT/EXPIRED, the payment must be applied or refunded. Re-delivering the signed webhook is the safe path (same `event_id` is idempotent). Otherwise escalate to finance for a manual refund. |
-| `MISSING_AT_PROVIDER` | We recorded a payment the provider file does not have. | Check the file window first. If real, the order must not be fulfilled further: put it in review and escalate (possible forged webhook means the secret leaked). |
-| `AMOUNT_MISMATCH` | Event or order `paid_satang` differs from the provider amount. | The order should already be NEEDS_REVIEW; refund the difference or the whole payment. |
-| `STATUS_MISMATCH` | Refund totals differ, a duplicate `payment.succeeded` (`payment.duplicate` event), or a PENDING refund nobody will send / older than 15 min. | Duplicate charge: confirm with the provider, then a partial refund. PENDING: see above. |
+| `MISSING_IN_SYSTEM` | ผู้ให้บริการรับเงินไปแล้วแต่เราไม่มี webhook (webhook หาย เช่น Postgres ล่มนานกว่ารอบ retry ~4 นาทีของ mock-pay) | หาออเดอร์ ถ้ายังเป็น PENDING_PAYMENT/EXPIRED ต้องนำการจ่ายเงินไปใช้หรือ refund การส่ง webhook ที่ลงลายเซ็นซ้ำคือทางที่ปลอดภัย (`event_id` เดิมเป็น idempotent) ไม่เช่นนั้นให้ escalate ไป finance เพื่อ refund ด้วยมือ |
+| `MISSING_AT_PROVIDER` | เราบันทึกการจ่ายเงินที่ไฟล์ของผู้ให้บริการไม่มี | ตรวจช่วงเวลาของไฟล์ก่อน ถ้าเป็นจริง ห้าม fulfill ออเดอร์นี้ต่อ: ส่งเข้า review และ escalate (อาจมี webhook ปลอม แปลว่า secret รั่ว) |
+| `AMOUNT_MISMATCH` | `paid_satang` ของ event หรือออเดอร์ต่างจากยอดของผู้ให้บริการ | ออเดอร์ควรเป็น NEEDS_REVIEW อยู่แล้ว ให้ refund ส่วนต่างหรือทั้งยอดที่จ่าย |
+| `STATUS_MISMATCH` | ยอด refund รวมไม่ตรง, มี `payment.succeeded` ซ้ำ (event `payment.duplicate`) หรือ refund PENDING ที่ไม่มีใครส่ง / ค้างนานกว่า 15 นาที | ตัดเงินซ้ำ: ยืนยันกับผู้ให้บริการแล้ว partial refund ส่วน PENDING: ดูข้างบน |
 
-Escalate to finance for any mismatch you cannot explain from `webhook_events` and `order_events`.
+ให้ escalate ไป finance สำหรับ mismatch ใดก็ตามที่อธิบายไม่ได้จาก `webhook_events` และ `order_events`
 
-## mock-game down for a whole day
+<a id="mock-game-down-for-a-whole-day"></a>
+## mock-game ล่มทั้งวัน
 
-What the system does by itself: each order's GET cannot answer, so the worker never POSTs; after
-5 claims (about a minute) the order goes to `NEEDS_REVIEW` with a dead letter. No money moves and
-nothing is delivered twice. If mock-game is up but refuses every POST, orders end `FAILED` with an
-automatic full refund once a GET confirms nothing was delivered.
+สิ่งที่ระบบทำเอง: GET ของแต่ละออเดอร์ไม่ได้คำตอบ worker จึงไม่ POST เลย หลังครบ
+5 claim (ประมาณหนึ่งนาที) ออเดอร์จะไป `NEEDS_REVIEW` พร้อม dead letter ไม่มีเงินเคลื่อนและ
+ไม่มีอะไรถูกส่งซ้ำ ถ้า mock-game ทำงานแต่ปฏิเสธทุก POST ออเดอร์จะจบที่ `FAILED` พร้อม
+refund เต็มจำนวนอัตโนมัติเมื่อ GET ยืนยันว่าไม่มีอะไรถูกส่ง
 
-1. **Confirm:** `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:4020/healthz`, `docker compose ps mock-game`, worker logs.
-2. **Optional, slow the pile-up:** `docker compose stop worker` keeps new jobs in the outbox
-   instead of sending them to review. Side effects: expiry, refunds and the SSE signal relay stop too
-   (streams fall back to 5 s polling), and customers see IN_QUEUE. Start it again with
-   `docker compose start worker`. **Not run** here. With the worker running, orders simply
-   collect in NEEDS_REVIEW, which is also safe.
-3. **Customers:** status page / banner that top-ups are delayed and paid orders will be delivered
-   or refunded; no need to pay again. Do not promise a time until mock-game is back.
-4. **When mock-game is back:** retry each NEEDS_REVIEW order (table above). The worker GETs every
-   reference first, so a top-up that did land before the outage is not repeated.
-5. **If the business decides to refund instead (batch):** only for orders where every line's
-   `GET /topups/<order_id>:<sku>` is 404 and `refunded_satang = 0`. Use one fixed
-   `Idempotency-Key` per order (e.g. `outage-<date>-<order_id>`) so a re-run of the batch cannot
-   refund twice; the DB also refuses any refund above `paid_satang`. Refunding a NEEDS_REVIEW
-   order does not return stock (we cannot prove nothing was delivered). **Not run** here.
+1. **ยืนยัน:** `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:4020/healthz`, `docker compose ps mock-game`, log ของ worker
+2. **ทางเลือก ชะลอการสะสม:** `docker compose stop worker` ทำให้งานใหม่ค้างอยู่ใน outbox
+   แทนที่จะถูกส่งเข้า review ผลข้างเคียง: expiry, refund และการส่งต่อสัญญาณ SSE จะหยุดด้วย
+   (stream ถอยไปใช้ polling ทุก 5 s) และลูกค้าจะเห็น IN_QUEUE เริ่มกลับด้วย
+   `docker compose start worker` **Not run** ในที่นี้ ถ้าปล่อย worker ทำงานต่อ ออเดอร์จะ
+   ไปกองอยู่ใน NEEDS_REVIEW ซึ่งก็ปลอดภัยเช่นกัน
+3. **ลูกค้า:** หน้า status / banner แจ้งว่าการเติมล่าช้า และออเดอร์ที่จ่ายแล้วจะได้รับของ
+   หรือได้เงินคืน ไม่ต้องจ่ายใหม่ อย่าสัญญาเวลาจนกว่า mock-game จะกลับมา
+4. **เมื่อ mock-game กลับมา:** retry ทุกออเดอร์ที่เป็น NEEDS_REVIEW (ตามตารางข้างบน) worker จะ GET ทุก
+   reference ก่อน ดังนั้น top-up ที่เข้าไปแล้วก่อน outage จะไม่ถูกทำซ้ำ
+5. **ถ้าฝ่ายธุรกิจตัดสินใจ refund แทน (batch):** ทำเฉพาะออเดอร์ที่ทุกบรรทัด
+   `GET /topups/<order_id>:<sku>` เป็น 404 และ `refunded_satang = 0` ใช้ `Idempotency-Key`
+   คงที่หนึ่งค่าต่อออเดอร์ (เช่น `outage-<date>-<order_id>`) เพื่อให้การรัน batch ซ้ำไม่ refund
+   สองครั้ง DB ก็ปฏิเสธ refund ที่เกิน `paid_satang` อยู่แล้ว การ refund ออเดอร์ NEEDS_REVIEW
+   จะไม่คืน stock (เราพิสูจน์ไม่ได้ว่าไม่มีอะไรถูกส่ง) **Not run** ในที่นี้
 
-Escalate after 30 minutes of outage, or immediately if `/stats` shows any reference with a count above 1.
+ให้ escalate เมื่อ outage เกิน 30 นาที หรือทันทีถ้า `/stats` แสดง reference ใดมี count เกิน 1
 
-## Many webhooks rejected (401 INVALID_SIGNATURE)
+<a id="many-webhooks-rejected-401-invalid_signature"></a>
+## Webhook ถูกปฏิเสธจำนวนมาก (401 INVALID_SIGNATURE)
 
 ```sh
 docker compose logs --no-log-prefix api-1 api-2 | grep '"route":"/api/v1/webhooks/payment"' | grep -c '"status":401'
@@ -188,29 +198,31 @@ docker compose exec -T api-1 printenv PAYMENT_WEBHOOK_SECRET   # compare with mo
 docker compose exec -T mock-pay printenv PAYMENT_WEBHOOK_SECRET
 ```
 
-Causes: secret rotated on one side only, clock skew, a proxy changing the body (the signature is
-over the raw bytes, header `X-IBM-Signature: t=<unix>,v1=<hex hmac>`). Rejected webhooks change
-nothing and the provider retries, so fix the secret/clock within mock-pay's retry window (about
-4 minutes) and the backlog delivers itself; later ones show up as `MISSING_IN_SYSTEM`. Escalate
-immediately if signatures fail while the secrets match: someone may be forging webhooks.
+สาเหตุ: หมุน secret ฝั่งเดียว, clock skew, proxy แก้ body (ลายเซ็นคำนวณบน
+raw bytes, header `X-IBM-Signature: t=<unix>,v1=<hex hmac>`) webhook ที่ถูกปฏิเสธไม่เปลี่ยนอะไร
+และผู้ให้บริการจะ retry ดังนั้นแก้ secret/นาฬิกาให้ทันภายในรอบ retry ของ mock-pay (ประมาณ
+4 นาที) แล้ว backlog จะส่งเข้ามาเอง ตัวที่เลยช่วงนั้นจะโผล่เป็น `MISSING_IN_SYSTEM` ให้ escalate
+ทันทีถ้าลายเซ็นล้มเหลวทั้งที่ secret ตรงกัน: อาจมีคนปลอม webhook
 
-## Redis down
+<a id="redis-down"></a>
+## Redis ล่ม
 
-Symptoms: `/readyz` 503 (`redis` check), warnings from the rate limiter. Effects: live tracking
-falls back to 1 s polling, the worker still polls the outbox every second, track and per-IP admin
-login limits are not enforced (OTP lock and per-email admin lock still are). No data is at risk.
+อาการ: `/readyz` ตอบ 503 (check `redis`), มี warning จาก rate limiter ผลกระทบ: live tracking
+ถอยไปใช้ polling ทุก 1 s, worker ยังคง poll outbox ทุกวินาที, ลิมิตของ track และลิมิต admin
+login ต่อ IP ไม่ถูกบังคับ (OTP lock และ admin lock ต่ออีเมลยังทำงาน) ข้อมูลไม่มีความเสี่ยง
 
 ```sh
 docker compose ps redis
 docker compose start redis      # or: docker compose up -d redis
 ```
 
-Escalate if it does not stay up; meanwhile watch `/orders/track` traffic for abuse.
+ให้ escalate ถ้า Redis ไม่อยู่ได้นาน ระหว่างนั้นเฝ้าดู traffic ของ `/orders/track` ว่ามีการ abuse หรือไม่
 
-## Postgres down
+<a id="postgres-down"></a>
+## Postgres ล่ม
 
-Symptoms: API 503 `DATABASE_UNAVAILABLE`, `/readyz` 503, `inblack_metrics_db_up 0`, worker idle.
-Nothing is acknowledged without a commit, so orders and webhooks are simply refused and retried.
+อาการ: API ตอบ 503 `DATABASE_UNAVAILABLE`, `/readyz` 503, `inblack_metrics_db_up 0`, worker ว่างงาน
+ไม่มีอะไรถูกตอบรับโดยไม่มี commit ดังนั้นออเดอร์และ webhook จะถูกปฏิเสธแล้ว retry เท่านั้น
 
 ```sh
 docker compose ps postgres
@@ -218,6 +230,6 @@ docker compose logs --tail 50 postgres
 docker compose start postgres   # or: docker compose up -d postgres
 ```
 
-After it is back: check `/readyz`, then run reconciliation for the outage window (webhooks that
-outlived mock-pay's retries appear as `MISSING_IN_SYSTEM`). Escalate at once if the data volume
-is damaged; there is no backup or replica in this setup.
+หลังกลับมา: ตรวจ `/readyz` แล้วรัน reconciliation สำหรับช่วงเวลาที่ล่ม (webhook ที่ค้างนานเกิน
+รอบ retry ของ mock-pay จะโผล่เป็น `MISSING_IN_SYSTEM`) ให้ escalate ทันทีถ้า data volume
+เสียหาย เพราะ setup นี้ไม่มี backup หรือ replica

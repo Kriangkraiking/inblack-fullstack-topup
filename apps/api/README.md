@@ -5,7 +5,7 @@
 [circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
 [circleci-url]: https://circleci.com/gh/nestjs/nest
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
+  <p align="center">framework ของ <a href="http://nodejs.org" target="_blank">Node.js</a> สำหรับสร้างแอปฝั่ง server ที่มีประสิทธิภาพและขยายได้</p>
     <p align="center">
 <a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
 <a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
@@ -21,38 +21,38 @@
   <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
   [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-## Description
+## คำอธิบาย
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+repository ตั้งต้นของ framework [Nest](https://github.com/nestjs/nest) สำหรับ TypeScript
 
-## Real-time, health, metrics and logs (InBlack)
+## Real-time, health, metrics และ log (InBlack)
 
-- `GET /api/v1/orders/{id}/events?token=` streams the order's `order_events` as SSE. The token is
-  `events_token` from `POST /api/v1/orders/track`. See `docs/adr/0003-realtime-across-replicas.md`
-  and `node scripts/audit/sse.mjs` (needs the compose stack running).
-- `GET /healthz` is liveness only. `GET /readyz` answers 503 problem+json (`NOT_READY`) when
-  Postgres or Redis fails a 1 second check.
-- `GET /metrics` is **per instance**: `http_request_duration_seconds` counts only the requests
-  that replica served, so scrape `api-1:3000` and `api-2:3000` separately and sum. The
+- `GET /api/v1/orders/{id}/events?token=` stream `order_events` ของออเดอร์เป็น SSE โดย token คือ
+  `events_token` จาก `POST /api/v1/orders/track` ดู `docs/adr/0003-realtime-across-replicas.md`
+  และ `node scripts/audit/sse.mjs` (ต้องรัน compose stack อยู่)
+- `GET /healthz` เป็น liveness อย่างเดียว `GET /readyz` ตอบ 503 problem+json (`NOT_READY`) เมื่อ
+  Postgres หรือ Redis ไม่ผ่านการตรวจภายใน 1 วินาที
+- `GET /metrics` เป็น **ต่อ instance**: `http_request_duration_seconds` นับเฉพาะ request ที่
+  replica นั้นรับ จึงต้อง scrape `api-1:3000` และ `api-2:3000` แยกกันแล้วรวมผล ส่วน gauge
   `inblack_orders`, `inblack_queue_depth`, `inblack_fulfillment_retries`,
-  `inblack_outbox_job_retries` and `inblack_dead_letters` gauges come from Postgres (cached for
-  5 seconds) and are the same on both. Through the proxy on port 8080 `/metrics` is a 404; read it
-  inside the compose network, e.g.
-  `docker exec inblack-api-1 node -e "fetch('http://127.0.0.1:3000/metrics').then(r=>r.text()).then(console.log)"`.
-- Logs are one JSON object per line with `level`, `time`, `msg` and `request_id`. nginx sets
-  `X-Request-Id` when the client sends none; the webhook stores it in the outbox job, and the
-  worker logs the job and calls mock-game with it, so
-  `docker compose logs api-1 api-2 worker mock-game | grep <request_id>` follows one payment.
-  Emails are masked (`a***@example.com`); passwords, cookies, signatures, tokens and secrets are
-  never logged. URLs are logged as route templates, so the SSE token in the query never is.
+  `inblack_outbox_job_retries` และ `inblack_dead_letters` มาจาก Postgres (cache ไว้
+  5 วินาที) และมีค่าเท่ากันทั้งสองตัว ผ่าน proxy ที่พอร์ต 8080 `/metrics` จะเป็น 404; ให้อ่าน
+  ภายใน compose network เช่น
+  `docker exec inblack-api-1 node -e "fetch('http://127.0.0.1:3000/metrics').then(r=>r.text()).then(console.log)"`
+- Log เป็น JSON object หนึ่งตัวต่อบรรทัด มี `level`, `time`, `msg` และ `request_id` nginx ตั้ง
+  `X-Request-Id` ให้เมื่อ client ไม่ได้ส่งมา; webhook เก็บค่านี้ไว้ใน outbox job และ
+  worker log งานนั้นและเรียก mock-game ด้วยค่านี้ ดังนั้น
+  `docker compose logs api-1 api-2 worker mock-game | grep <request_id>` ติดตามการชำระเงินหนึ่งรายการได้
+  อีเมลถูก mask (`a***@example.com`); รหัสผ่าน, cookie, signature, token และ secret
+  ไม่เคยถูก log URL ถูก log เป็น route template ดังนั้น SSE token ใน query จึงไม่ถูก log
 
-## Project setup
+## ติดตั้งโปรเจกต์
 
 ```bash
 $ npm install
 ```
 
-## Compile and run the project
+## Compile และรันโปรเจกต์
 
 ```bash
 # development
@@ -65,7 +65,7 @@ $ npm run start:dev
 $ npm run start:prod
 ```
 
-## Run tests
+## รัน test
 
 ```bash
 # unit tests
@@ -80,74 +80,74 @@ $ npm run test:cov
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+เมื่อพร้อม deploy แอป NestJS ขึ้น production มีขั้นตอนสำคัญบางอย่างที่ช่วยให้รันได้อย่างมีประสิทธิภาพที่สุด ดูข้อมูลเพิ่มเติมที่ [เอกสารการ deploy](https://docs.nestjs.com/deployment)
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+ถ้าต้องการแพลตฟอร์มบน cloud สำหรับ deploy แอป NestJS ดู [Mau](https://mau.nestjs.com) แพลตฟอร์มทางการสำหรับ deploy แอป NestJS บน AWS Mau ทำให้การ deploy ง่ายและเร็ว ใช้เพียงไม่กี่ขั้นตอน:
 
 ```bash
 $ npm install -g @nestjs/mau
 $ mau deploy
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+ด้วย Mau คุณ deploy แอปได้ในไม่กี่คลิก และโฟกัสกับการสร้างฟีเจอร์แทนการดูแล infrastructure
 
 ## Observability
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+ในแอป production นั้น observability จำเป็นต่อการเข้าใจพฤติกรรมของระบบ ตรวจพบปัญหาแต่เนิ่น ๆ และรักษาประสิทธิภาพให้เชื่อถือได้
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+[NestJS Observe](https://observe.nestjs.com) instrument แอป NestJS ให้อัตโนมัติ ทำให้มองเห็นระบบได้ลึกโดยตั้งค่าน้อยที่สุด:
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+- **Distributed tracing:** ติดตาม request ข้าม service และเข้าใจว่าไหลผ่านระบบอย่างไร
+- **Waterfall analysis:** แสดงภาพการทำงานของ request และหาจุดที่ช้า คอขวด และความล่าช้าที่ไม่คาดคิด
+- **Performance analysis:** วิเคราะห์ประสิทธิภาพแบบ real time และชี้จุดที่ต้อง optimize ได้เร็ว
+- **Metrics:** ติดตาม metric สำคัญของแอปและ infrastructure เพื่อเข้าใจสุขภาพระบบและแนวโน้มประสิทธิภาพ
+- **Logging:** รวม log ไว้ที่เดียวและเชื่อมกับ trace และ telemetry อื่นเพื่อให้ debug ง่ายขึ้น
+- **Error tracking:** ตรวจพบ error ได้เร็วและสืบหาต้นเหตุพร้อมบริบทรอบข้าง
+- **SLA monitoring:** ติดตาม service-level objective และรู้เมื่อแอปเข้าใกล้หรือเกินเกณฑ์ที่กำหนด
+- **Alarms and alerts:** ตั้ง alert สำหรับ error ร้ายแรง ประสิทธิภาพตก การละเมิด SLA และความผิดปกติอื่น เพื่อให้ทีมตอบสนองได้เร็ว
 
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+หากต้องการเพิ่มเข้าโปรเจกต์นี้ ให้รันคำสั่งนี้แล้วอนุมัติรหัสที่แสดงที่ [observe.nestjs.com/link](https://observe.nestjs.com/link) - สมัครฟรีได้ถ้ายังไม่มีบัญชี:
 
 ```bash
 $ npx @nestjs/observe link
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+คำสั่งนี้ติดตั้ง `@nestjs/observe` ต่อเข้ากับ `AppModule` และ `main.ts` และเขียน app key กับ secret ลง `.env` ซึ่งทุกสคริปต์ `nest start` (`start`, `start:dev`, `start:debug`) จะโหลด ใน production ให้ตั้ง `OBSERVE_APP_KEY` และ `OBSERVE_APP_SECRET` ใน environment แทน
 
-Or do it by hand:
+หรือทำเอง:
 
 ```bash
 $ npm install @nestjs/observe
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+แล้วทำตาม [คู่มือการตั้งค่า](https://docs.nestjs.com/observability/sdk) - ใช้แค่ import เดียวและ app key
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+แผนฟรีไม่ต้องใช้ข้อมูลการชำระเงิน และครอบคลุม 300,000 events ต่อเดือน ดู [live demo](https://www.observe-demo.nestjs.com/dashboard) ก่อนได้ - เป็น dashboard เต็มบนข้อมูลของ service ที่มีงานเยอะ โดยไม่ต้องติดตั้งอะไร
 
-## Resources
+## แหล่งข้อมูล
 
-Check out a few resources that may come in handy when working with NestJS:
+แหล่งข้อมูลที่อาจเป็นประโยชน์เมื่อทำงานกับ NestJS:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+- เข้า [NestJS Documentation](https://docs.nestjs.com) เพื่อเรียนรู้ framework เพิ่มเติม
+- สำหรับคำถามและการช่วยเหลือ เข้า [Discord channel](https://discord.gg/G7Qnnhy)
+- หากต้องการเจาะลึกและลงมือมากขึ้น ดู [คอร์ส](https://courses.nestjs.com/) วิดีโอทางการ
+- Deploy แอปขึ้น AWS ได้ในไม่กี่คลิกด้วย [NestJS Mau](https://mau.nestjs.com)
+- Instrument แอปอัตโนมัติด้วย [NestJS Observe](https://observe.nestjs.com) ทำ distributed tracing, metrics และ logging ได้ง่าย พร้อม error tracking และ performance monitoring สำหรับแอป NestJS
+- แสดงภาพ application graph และโต้ตอบกับแอป NestJS แบบ real-time ด้วย [NestJS Devtools](https://devtools.nestjs.com)
+- ต้องการความช่วยเหลือในโปรเจกต์ (part-time ถึง full-time)? ดู [enterprise support](https://enterprise.nestjs.com) ทางการ
+- ติดตามข่าวสารได้ที่ [X](https://x.com/nestframework) และ [LinkedIn](https://linkedin.com/company/nestjs)
+- กำลังหางานหรือมีงานจะเสนอ? ดู [Jobs board](https://jobs.nestjs.com) ทางการ
 
 ## Support
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+Nest เป็นโปรเจกต์ open source สัญญาอนุญาต MIT เติบโตได้ด้วยผู้สนับสนุนและ backer ถ้าต้องการร่วมสนับสนุน [อ่านเพิ่มเติมที่นี่](https://docs.nestjs.com/support)
 
-## Stay in touch
+## ติดต่อ
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
+- ผู้เขียน - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- เว็บไซต์ - [https://nestjs.com](https://nestjs.com/)
 - Twitter - [@nestframework](https://twitter.com/nestframework)
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Nest ใช้ [สัญญาอนุญาต MIT](https://github.com/nestjs/nest/blob/master/LICENSE)

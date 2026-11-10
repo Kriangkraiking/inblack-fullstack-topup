@@ -2,200 +2,200 @@
 
 ภาษาไทย: [docs/README.th.md](docs/README.th.md)
 
-Game top-up shop: catalog, checkout with fees and vouchers, a mock payment provider, a worker that
-tops up through a mock game API, live order tracking, customer OTP sign-in and an admin back office
-with refunds and reconciliation. The goal of the design is "never lose money, never lose goods"
-while any service can die at any moment. Money is integer satang everywhere.
+ร้านเติมเกม: แคตตาล็อกสินค้า, checkout พร้อมค่าธรรมเนียมและโค้ดส่วนลด, ผู้ให้บริการชำระเงินจำลอง (mock),
+worker ที่เติมเกมผ่าน mock game API, ติดตามออเดอร์แบบสด, ลูกค้าเข้าสู่ระบบด้วย OTP และหลังบ้าน admin
+ที่ทำ refund และ reconciliation ได้ เป้าหมายของการออกแบบคือ "ไม่เสียเงิน ไม่เสียของ" แม้ service ใดจะตาย
+ได้ทุกเมื่อ เงินเป็นจำนวนเต็มหน่วยสตางค์ทุกชั้น
 
-More: [ARCHITECTURE.md](ARCHITECTURE.md) · [RUNBOOK.md](RUNBOOK.md) · [SEO.md](SEO.md) ·
-[AI_LOG.md](AI_LOG.md) · [docs/adr/](docs/adr/) · [openapi.yaml](openapi.yaml) · spec: [docs/SPEC.md](docs/SPEC.md)
+เพิ่มเติม: [ARCHITECTURE.md](ARCHITECTURE.md) · [RUNBOOK.md](RUNBOOK.md) · [SEO.md](SEO.md) ·
+[AI_LOG.md](AI_LOG.md) · [docs/adr/](docs/adr/) · [openapi.yaml](openapi.yaml) · โจทย์: [docs/SPEC.md](docs/SPEC.md)
 
-## Quick start (วิธีรัน)
+## วิธีรัน
 
-Needs Docker with Compose v2. No `.env` file is needed: every variable in `docker-compose.yml`
-has a local test default.
+ต้องมี Docker พร้อม Compose v2 ไม่ต้องมีไฟล์ `.env`: ทุกตัวแปรใน `docker-compose.yml`
+มีค่า default สำหรับทดสอบในเครื่องอยู่แล้ว
 
 ```sh
 docker compose up --build -d --wait     # or without -d --wait to watch the logs
 ```
 
-From a fresh clone without `.env` this exits 0 with every service healthy (checked several times,
-last at `4407e13`). All published ports bind to `127.0.0.1` only.
+จาก clone ใหม่ที่ไม่มี `.env` คำสั่งนี้จบด้วย exit 0 และทุก service healthy (ตรวจหลายครั้ง
+ครั้งล่าสุดที่ `4407e13`) ทุกพอร์ตที่เปิดออกมา bind กับ `127.0.0.1` เท่านั้น
 
-| Service | URL | Notes |
+| Service | URL | หมายเหตุ |
 |---|---|---|
-| Web (Next.js) | http://localhost:3000 | catalog, `/checkout`, `/track`, `/my-orders`, `/admin`, `/admin/products` |
-| API (nginx round-robin over `api-1`, `api-2`) | http://localhost:8080 | `/api/v1/...`, `/healthz`, `/readyz`. `/metrics` is 404 here on purpose, see [RUNBOOK](RUNBOOK.md#health-and-metrics) |
-| mock-pay | http://localhost:4010 | hosted checkout page with scenario buttons, `GET /settlements.csv` |
+| Web (Next.js) | http://localhost:3000 | แคตตาล็อก, `/checkout`, `/track`, `/my-orders`, `/admin`, `/admin/products` |
+| API (nginx round-robin ระหว่าง `api-1`, `api-2`) | http://localhost:8080 | `/api/v1/...`, `/healthz`, `/readyz` ส่วน `/metrics` ตั้งใจให้เป็น 404 ที่นี่ ดู [RUNBOOK](RUNBOOK.md#health-and-metrics) |
+| mock-pay | http://localhost:4010 | หน้า hosted checkout พร้อมปุ่มเลือก scenario, `GET /settlements.csv` |
 | mock-game | http://localhost:4020 | `GET /stats`, `GET /topups/{reference}` |
-| Mailpit | http://localhost:8025 | OTP and receipt mail (SMTP on 127.0.0.1:1025) |
-| Postgres 16 | `127.0.0.1:5433` | db `inblack_topup`, owner `inblack_user` / `change_this_local_password` (test value) |
+| Mailpit | http://localhost:8025 | อีเมล OTP และใบเสร็จ (SMTP ที่ 127.0.0.1:1025) |
+| Postgres 16 | `127.0.0.1:5433` | db `inblack_topup`, owner `inblack_user` / `change_this_local_password` (ค่าทดสอบ) |
 
-Redis, the worker and the API replicas are not published. Stop with `docker compose down`
-(`down -v` also deletes the data volumes).
+Redis, worker และ API replica ไม่ได้เปิดพอร์ตออกมา หยุดด้วย `docker compose down`
+(`down -v` จะลบ data volume ด้วย)
 
-## Test credentials (ค่าทดสอบเท่านั้น)
+## ค่าทดสอบสำหรับเข้าสู่ระบบ
 
-Seeded by `db/seed/seed.sql` (hashes only); source: [docs/SEED_CREDENTIALS.md](docs/SEED_CREDENTIALS.md).
-These are test values for local and review use, not real accounts.
+seed โดย `db/seed/seed.sql` (เก็บเฉพาะ hash) ที่มา: [docs/SEED_CREDENTIALS.md](docs/SEED_CREDENTIALS.md)
+ค่าเหล่านี้เป็นค่าทดสอบสำหรับใช้ในเครื่องและการตรวจงานเท่านั้น ไม่ใช่บัญชีจริง
 
 **Admin dashboard (http://localhost:3000/admin):** username `Admin`, password `Admin3324`
-(superadmin, case-insensitive username). The login field accepts a username or an email.
+(superadmin, username ไม่สนตัวพิมพ์เล็ก/ใหญ่) ช่อง login รับได้ทั้ง username หรืออีเมล
 
-| Role | Email | Password | Can do |
+| Role | อีเมล | รหัสผ่าน | ทำอะไรได้ |
 |---|---|---|---|
-| superadmin | username `Admin` (`admin@inblackm.test`) | `Admin3324` | everything below; the main account for managing orders |
-| viewer | `viewer@inblackm.test` | `Viewer-Test-2026` | read orders (emails masked; search by order id only) |
+| superadmin | username `Admin` (`admin@inblackm.test`) | `Admin3324` | ทุกอย่างด้านล่าง เป็นบัญชีหลักสำหรับจัดการออเดอร์ |
+| viewer | `viewer@inblackm.test` | `Viewer-Test-2026` | อ่านออเดอร์ (อีเมลถูก mask; ค้นได้ด้วยเลขออเดอร์เท่านั้น) |
 | support | `support@inblackm.test` | `Support-Test-2026` | + retry fulfillment |
-| finance | `finance@inblackm.test` | `Finance-Test-2026` | + refunds, reconciliation, audit log |
-| superadmin | `superadmin@inblackm.test` | `Superadmin-Test-2026` | + edit products (name, price, stock) |
+| finance | `finance@inblackm.test` | `Finance-Test-2026` | + refund, reconciliation, audit log |
+| superadmin | `superadmin@inblackm.test` | `Superadmin-Test-2026` | + แก้ไขสินค้า (ชื่อ, ราคา, stock) |
 
-Roles are ordered: each one includes the ones above it (`RequireRole` in `apps/api/src/admin/admin-roles.ts`).
+Role เรียงเป็นลำดับขั้น: แต่ละ role มีสิทธิ์ของ role ที่อยู่ด้านบนด้วย (`RequireRole` ใน `apps/api/src/admin/admin-roles.ts`)
 
-**Customers** have no password. Enter any email at http://localhost:3000/my-orders, open
-http://localhost:8025 and copy the 6-digit code (valid 5 minutes, single use, 5 wrong codes lock
-the email for 15 minutes).
+**ลูกค้า** ไม่มีรหัสผ่าน ใส่อีเมลใดก็ได้ที่ http://localhost:3000/my-orders แล้วเปิด
+http://localhost:8025 เพื่อคัดลอกรหัส 6 หลัก (ใช้ได้ 5 นาที ใช้ครั้งเดียว ใส่ผิด 5 ครั้งจะล็อก
+อีเมลนั้น 15 นาที)
 
-## Design
+## ดีไซน์
 
-The shop follows the visual direction of inblackm.com (red and white, red header with a centred
-logo, search bar, bold hero, rounded category chips and product cards). No logo, image or other
-asset was copied from that site: the logo and graphics are drawn in SVG/CSS here. The admin area
-has its own layout in the style of a common admin dashboard template: red sidebar, top bar with
-the signed-in user and role, summary cards from `GET /api/v1/admin/stats` (refreshed every 10 s),
-status counts and the orders table. There is no Claude Design export (`design/` does not exist).
+หน้าร้านใช้แนวทางภาพแบบ inblackm.com (แดง-ขาว, header สีแดงมีโลโก้ตรงกลาง, ช่องค้นหา, hero
+ตัวหนา, chip หมวดหมู่และการ์ดสินค้ามุมโค้ง) ไม่ได้คัดลอกโลโก้ รูปภาพ หรือ asset ใดจากเว็บนั้น: โลโก้และ
+กราฟิกวาดเองด้วย SVG/CSS ส่วน admin มี layout ของตัวเองตามสไตล์ admin dashboard template ทั่วไป:
+sidebar สีแดง, top bar แสดงผู้ใช้ที่ login และ role, การ์ดสรุปจาก `GET /api/v1/admin/stats` (รีเฟรชทุก 10 วินาที),
+จำนวนตามสถานะ และตารางออเดอร์ ยังไม่มีไฟล์ export จาก Claude Design ใน `design/` มีแค่ prompt
+สำหรับสร้างงานใน Claude Design ที่ [design/CLAUDE_DESIGN_BRIEF.md](design/CLAUDE_DESIGN_BRIEF.md)
 
-## Try it (flow ทดลอง)
+## ลองใช้งาน
 
-1. **Buy:** http://localhost:3000 → pick items → checkout (fee and VAT update as you change the
-   payment method or voucher). Example from a real browser run: MONTHLY-PASS + FLASH-SKIN-01,
-   `FLAT20`, TrueMoney shows ฿261.87 total, fee ฿3.87, VAT ฿17.13, and mock-pay receives 26187.
-2. **Pay:** you are sent to mock-pay. Each button is a scenario from spec section 6 (success,
-   failure, duplicate webhook ×5, slow webhook, wrong amount, ...).
-3. **Track live:** you come back to the order page; the timeline updates over SSE until the top-up
-   completes. `/track` finds any order by order id + email. http://localhost:4020/stats shows one
-   top-up per `<order_id>:<sku>`.
-4. **Admin refund:** sign in at http://localhost:3000/admin as `finance`, open an order, refund →
-   enter amount → confirm in a second step. Partial refunds are allowed up to the paid amount.
-5. **Product edit:** sign in as `superadmin` → http://localhost:3000/admin/products. A stock edit
-   must match the stock you saw, otherwise 409 `STOCK_CHANGED`.
+1. **ซื้อ:** http://localhost:3000 → เลือกสินค้า → checkout (ค่าธรรมเนียมและ VAT อัปเดตเมื่อเปลี่ยน
+   วิธีชำระเงินหรือโค้ดส่วนลด) ตัวอย่างจากการรันในเบราว์เซอร์จริง: MONTHLY-PASS + FLASH-SKIN-01,
+   `FLAT20`, TrueMoney แสดงยอดรวม ฿261.87, ค่าธรรมเนียม ฿3.87, VAT ฿17.13 และ mock-pay ได้รับ 26187
+2. **ชำระเงิน:** ระบบส่งไปที่ mock-pay แต่ละปุ่มคือ scenario จากโจทย์ข้อ 6 (สำเร็จ,
+   ล้มเหลว, webhook ซ้ำ ×5, webhook ช้า, ยอดไม่ตรง, ...)
+3. **ติดตามแบบสด:** กลับมาที่หน้าออเดอร์ timeline อัปเดตผ่าน SSE จนเติมเกมเสร็จ
+   `/track` หาออเดอร์ใดก็ได้ด้วยเลขออเดอร์ + อีเมล http://localhost:4020/stats แสดงการเติม 1 ครั้งต่อ `<order_id>:<sku>`
+4. **Admin refund:** login ที่ http://localhost:3000/admin ด้วย `finance` เปิดออเดอร์ กด refund →
+   ใส่ยอด → ยืนยันในขั้นที่สอง refund บางส่วนได้ไม่เกินยอดที่ชำระ
+5. **แก้ไขสินค้า:** login ด้วย `superadmin` → http://localhost:3000/admin/products การแก้ stock
+   ต้องตรงกับ stock ที่เห็นอยู่ ไม่เช่นนั้นจะได้ 409 `STOCK_CHANGED`
 
-## Running the tests
+## การรัน test
 
 ```sh
 make test                       # lint, typecheck, unit, integration, e2e; stops at the first failure
 node scripts/ci/test-all.mjs    # the same without make (Windows); also: pnpm test:all
 ```
 
-Single steps: `make lint | typecheck | unit | integration | e2e` (or
-`node scripts/ci/test-all.mjs <step> ...`); `make up` / `make down` for the main stack.
-Needs Docker (Compose v2) and Node. With Node < 22.12 the pnpm steps run in the `node:22` image
-on a copy of the working tree (pnpm store cached in the volume `inblack-ci-pnpm-store`).
+รันทีละขั้น: `make lint | typecheck | unit | integration | e2e` (หรือ
+`node scripts/ci/test-all.mjs <step> ...`); `make up` / `make down` สำหรับ stack หลัก
+ต้องมี Docker (Compose v2) และ Node ถ้า Node < 22.12 ขั้นที่ใช้ pnpm จะรันใน image `node:22`
+บนสำเนาของ working tree (pnpm store cache ไว้ใน volume `inblack-ci-pnpm-store`)
 
-- **integration**: `*.int.spec.ts` against a real, empty Postgres 16 + Redis 7: locally from
-  `scripts/ci/integration.compose.yml` (project `inblack-ci-int`, ports 55432/56379, removed
-  afterwards), in CI from service containers via `TEST_DATABASE_URL`. The tests apply the
-  migrations and seed themselves. The step fails if any test skipped or none passed.
-- **e2e**: `docker compose up --build -d --wait` of the working tree (project `inblack-e2e`), then
-  `scripts/audit/sse.mjs`, `scripts/audit/invariants.mjs --reuse` against that stack, and
-  `scripts/audit/security.mjs` when present; `down -v` afterwards (`--keep` leaves it up). It
-  refuses to start while another project's `inblack-*` containers exist (fixed container names).
-  This is the end-to-end layer; there is no Playwright browser suite.
+- **integration**: `*.int.spec.ts` รันกับ Postgres 16 + Redis 7 จริงที่ว่างเปล่า: ในเครื่องใช้
+  `scripts/ci/integration.compose.yml` (project `inblack-ci-int`, พอร์ต 55432/56379, ลบทิ้งเมื่อจบ)
+  ใน CI ใช้ service container ผ่าน `TEST_DATABASE_URL` test จะ apply migration และ seed เอง
+  ขั้นนี้จะล้มถ้ามี test ใดถูก skip หรือไม่มี test ผ่านเลย
+- **e2e**: `docker compose up --build -d --wait` จาก working tree (project `inblack-e2e`) แล้วรัน
+  `scripts/audit/sse.mjs`, `scripts/audit/invariants.mjs --reuse` กับ stack นั้น และ
+  `scripts/audit/security.mjs` ถ้ามีไฟล์อยู่; จบด้วย `down -v` (`--keep` จะปล่อย stack ไว้) จะไม่ยอม
+  เริ่มถ้ามี container `inblack-*` ของ project อื่นอยู่ (ชื่อ container ตายตัว)
+  นี่คือชั้น end-to-end; ไม่มีชุด Playwright บนเบราว์เซอร์
 
-CI (`.github/workflows/ci.yml`) runs the same steps: lint → typecheck → unit → integration → e2e →
-`docker compose build`. Its e2e runs only `--invariants s1a,s2b,s3,s4`, one scenario per money or
-goods invariant (s1a oversell burst, s2b duplicate/replayed webhooks, s3 concurrent refunds plus
-reconciliation, s4 voucher limits). The others (s1b-s1d, s2a, s7, s8) repeat those invariants
-through expiry, worker kills and api-1/Redis outages and take most of the run time, so `make e2e`
-runs them all locally (`INVARIANTS=s7,s8 make e2e` for a subset).
+CI (`.github/workflows/ci.yml`) รันขั้นเดียวกัน: lint → typecheck → unit → integration → e2e →
+`docker compose build` ขั้น e2e ใน CI รันแค่ `--invariants s1a,s2b,s3,s4` คือหนึ่ง scenario ต่อหนึ่ง
+invariant ด้านเงินหรือของ (s1a oversell burst, s2b webhook ซ้ำ/replay, s3 refund พร้อมกันบวก
+reconciliation, s4 ขีดจำกัดโค้ดส่วนลด) ส่วนที่เหลือ (s1b-s1d, s2a, s7, s8) ทดสอบ invariant เดิมซ้ำ
+ผ่านการหมดอายุ, การ kill worker และ api-1/Redis ล่ม ซึ่งกินเวลาส่วนใหญ่ของการรัน ดังนั้น `make e2e`
+จะรันทั้งหมดในเครื่อง (`INVARIANTS=s7,s8 make e2e` สำหรับบางส่วน)
 
-### Latest results
+### ผลล่าสุด
 
-| Check | Result | At |
+| การตรวจ | ผล | ที่ commit |
 |---|---|---|
-| `scripts/audit/invariants.mjs` (all scenarios, fresh clone) | 76 passed, 0 failed | `75ea4df`, and `d92e744` after the redesign (orchestrator) |
-| `scripts/audit/security.mjs` | 44/44 | `4407e13`, `6a7d274`, and the redesign API (orchestrator) |
-| `scripts/audit/sse.mjs` | 10/10 | `4407e13`, `6a7d274`, and the redesign API (orchestrator) |
-| GitHub Actions, all 6 jobs | green | `fd91f78`, `7cb51ba`, `4407e13`, `33d1db2`, `d92e744` |
+| `scripts/audit/invariants.mjs` (ทุก scenario, clone ใหม่) | 76 passed, 0 failed | `75ea4df` และ `d92e744` หลัง redesign (orchestrator) |
+| `scripts/audit/security.mjs` | 44/44 | `4407e13`, `6a7d274` และ API หลัง redesign (orchestrator) |
+| `scripts/audit/sse.mjs` | 10/10 | `4407e13`, `6a7d274` และ API หลัง redesign (orchestrator) |
+| GitHub Actions ทั้ง 6 job | เขียว | `fd91f78`, `7cb51ba`, `4407e13`, `33d1db2`, `d92e744` |
 
-Run the full audit on a machine that will not sleep: it takes about 10 minutes, and a host that
-suspends mid-run freezes every container past the 15-minute order TTL (see AI_LOG).
+ให้รัน audit เต็มบนเครื่องที่จะไม่ sleep: ใช้เวลาประมาณ 10 นาที และถ้าเครื่อง suspend กลางทาง
+ทุก container จะค้างจนเลย order TTL 15 นาที (ดู AI_LOG)
 
-What the invariant audit shows: 600 concurrent orders for FLASH-SKIN-01 sell exactly 100; 100
-paid orders with the worker killed 3 times give no reference above 1 top-up; concurrent refunds
-from 2 admin sessions never exceed the paid amount and DB totals equal the provider's; SAVE10 is
-used exactly 10 times out of 150 emails.
+สิ่งที่ invariant audit แสดง: ออเดอร์ FLASH-SKIN-01 พร้อมกัน 600 รายการขายได้ 100 พอดี; ออเดอร์ที่จ่ายแล้ว
+100 รายการโดย kill worker 3 ครั้ง ไม่มี reference ใดถูกเติมเกิน 1 ครั้ง; refund พร้อมกัน
+จาก admin 2 session ไม่เคยเกินยอดที่ชำระ และยอดรวมใน DB เท่ากับของผู้ให้บริการ; SAVE10 ถูกใช้
+10 ครั้งพอดีจาก 150 อีเมล
 
-## Status (สถานะตามจริง)
+## สถานะงาน (ตามจริง)
 
-Spec section numbers in brackets. ✅ done and tested · ⚠️ partial · ❌ not done.
+เลขข้อของโจทย์อยู่ในวงเล็บ ✅ เสร็จและมี test · ⚠️ บางส่วน · ❌ ยังไม่ทำ
 
-| Area | Item | Status |
+| หมวด | รายการ | สถานะ |
 |---|---|---|
-| Domain & money | Pricing with the 3 spec examples, integer satang end to end, order id checksum (CSPRNG + mod 997, also a DB `CHECK`), state machine in domain + DB trigger | ✅ |
-| | Idempotency-Key on `POST /orders` (byte-identical replay, `IDEMPOTENCY_KEY_REUSED`), order expiry | ✅ |
-| Concurrency [5.4] | No oversell, per-email limit, voucher limits, no double top-up, no over-refund — all under real concurrency | ✅ |
-| Payments [6] | Signed webhook (HMAC, 300 s skew), duplicates, out of order, after EXPIRED (re-reserve or auto refund), wrong amount → NEEDS_REVIEW | ✅ |
-| Fulfillment [7] | Transactional outbox, worker with lease + backoff + dead letter, recovery after kill, `SUCCESS_BUT_TIMEOUT` handled by GET-before-POST | ✅ |
-| | mock-pay and mock-game written to spec | ✅ |
-| | Refunds: partial, concurrent, idempotent; reconciliation API (CSV upload, 4 mismatch types) | ✅ |
-| Real-time [8.3] | SSE across replicas via Postgres NOTIFY → worker → Redis pub/sub, `Last-Event-ID` resume, polling fallback without Redis | ✅ |
-| Observability | `/healthz`, `/readyz`, Prometheus `/metrics` (latency histogram, orders by status, queue depth, retries, dead letters), JSON logs with `request_id` across api → worker → mock-game | ✅ |
+| Domain และเงิน | Pricing ตาม 3 ตัวอย่างในโจทย์, สตางค์จำนวนเต็มตลอดทาง, checksum เลขออเดอร์ (CSPRNG + mod 997 และเป็น `CHECK` ใน DB ด้วย), state machine ใน domain + DB trigger | ✅ |
+| | Idempotency-Key บน `POST /orders` (replay แบบ byte-identical, `IDEMPOTENCY_KEY_REUSED`), การหมดอายุของออเดอร์ | ✅ |
+| Concurrency [5.4] | ไม่ oversell, จำกัดต่ออีเมล, จำกัดโค้ดส่วนลด, ไม่เติมเกมซ้ำ, ไม่ refund เกิน — ทั้งหมดภายใต้ concurrency จริง | ✅ |
+| Payments [6] | Webhook ที่เซ็น (HMAC, skew 300 วินาที), ซ้ำ, สลับลำดับ, มาหลัง EXPIRED (จองใหม่หรือ refund อัตโนมัติ), ยอดไม่ตรง → NEEDS_REVIEW | ✅ |
+| Fulfillment [7] | Transactional outbox, worker พร้อม lease + backoff + dead letter, กู้คืนหลังถูก kill, จัดการ `SUCCESS_BUT_TIMEOUT` ด้วย GET-before-POST | ✅ |
+| | mock-pay และ mock-game เขียนตามสเปก | ✅ |
+| | Refund: บางส่วน, พร้อมกัน, idempotent; reconciliation API (อัปโหลด CSV, mismatch 4 ประเภท) | ✅ |
+| Real-time [8.3] | SSE ข้าม replica ผ่าน Postgres NOTIFY → worker → Redis pub/sub, resume ด้วย `Last-Event-ID`, fallback เป็น polling เมื่อไม่มี Redis | ✅ |
+| Observability | `/healthz`, `/readyz`, Prometheus `/metrics` (latency histogram, ออเดอร์ตามสถานะ, queue depth, retries, dead letters), JSON log พร้อม `request_id` ข้าม api → worker → mock-game | ✅ |
 | | OpenTelemetry / Jaeger | ❌ |
-| Security [8.4] | OTP sign-in, server-side sessions, CSRF (SameSite=Strict + Origin allowlist), rate limits on track / OTP / admin login, IDOR → 404, PII masking, security headers + nonce CSP, admin RBAC | ✅ |
-| Admin | Orders table with filters, detail + timeline, 2-step refund dialog, retry fulfillment (API), superadmin product edit | ✅ |
+| Security [8.4] | OTP sign-in, session ฝั่ง server, CSRF (SameSite=Strict + Origin allowlist), rate limit บน track / OTP / admin login, IDOR → 404, PII masking, security headers + nonce CSP, admin RBAC | ✅ |
+| Admin | ตารางออเดอร์พร้อมตัวกรอง, รายละเอียด + timeline, dialog refund 2 ขั้น, retry fulfillment (API), superadmin แก้ไขสินค้า | ✅ |
 | | Live dashboard | ❌ |
-| | Reconciliation UI page | ❌ (API only: `POST /api/v1/admin/reconciliation`) |
-| Frontend [9.2] | Catalog, checkout (live fee, voucher, Game UID check), tracking with SSE + `aria-live`, My Orders (OTP), dark mode, `prefers-reduced-motion` | ✅ |
-| | WCAG 2.2 AA / 320 px / keyboard-only checkout | ⚠️ built with these in mind, not formally audited |
-| | Product page `/products/[slug]` with JSON-LD and dynamic OG image | ❌ |
-| | i18n `/th` `/en` + hreflang | ❌ (Thai only) |
-| | SSG/ISR | ❌ by choice: the nonce CSP needs per-request rendering, see [SEO.md](SEO.md) |
-| | Lighthouse | ❌ not measured |
-| Design [9.1] | Claude Design export in `design/` (HTML + PDF) | ❌ folder does not exist |
-| SEO | robots.txt, sitemap.xml without private pages, `noindex` meta + `X-Robots-Tag` on track / my-orders / admin | ✅ |
-| Testing & CI | Unit, integration (real Postgres/Redis), e2e via audit scripts, `make test`, GitHub Actions 6 jobs | ✅ |
-| | Playwright browser E2E, contract tests | ❌ |
-| | 100k-order seed + p95 measurement | ❌ |
+| | หน้า UI reconciliation | ❌ (มีแค่ API: `POST /api/v1/admin/reconciliation`) |
+| Frontend [9.2] | แคตตาล็อก, checkout (ค่าธรรมเนียมสด, โค้ดส่วนลด, ตรวจ Game UID), tracking ด้วย SSE + `aria-live`, My Orders (OTP), dark mode, `prefers-reduced-motion` | ✅ |
+| | WCAG 2.2 AA / 320 px / checkout ด้วยคีย์บอร์ดอย่างเดียว | ⚠️ สร้างโดยคำนึงถึงเรื่องเหล่านี้ แต่ยังไม่ได้ audit อย่างเป็นทางการ |
+| | หน้าสินค้า `/products/[slug]` พร้อม JSON-LD และ OG image แบบ dynamic | ❌ |
+| | i18n `/th` `/en` + hreflang | ❌ (ภาษาไทยอย่างเดียว) |
+| | SSG/ISR | ❌ โดยตั้งใจ: nonce CSP ต้อง render ต่อ request ดู [SEO.md](SEO.md) |
+| | Lighthouse | ❌ ยังไม่ได้วัด |
+| Design [9.1] | Claude Design export ใน `design/` (HTML + PDF) | ❌ ยังไม่มีไฟล์ export (มีแค่ brief) |
+| SEO | robots.txt, sitemap.xml ไม่มีหน้าส่วนตัว, meta `noindex` + `X-Robots-Tag` บน track / my-orders / admin | ✅ |
+| Testing และ CI | Unit, integration (Postgres/Redis จริง), e2e ผ่าน audit script, `make test`, GitHub Actions 6 job | ✅ |
+| | Playwright browser E2E, contract test | ❌ |
+| | seed 100k ออเดอร์ + วัด p95 | ❌ |
 | Bonus | Mobile app, deploy | ❌ |
 
-## Configuration that matters
+## Configuration ที่สำคัญ
 
-Copy `.env.example` to `.env` only to override defaults.
+คัดลอก `.env.example` เป็น `.env` เฉพาะเมื่อต้องการ override ค่า default
 
-| Variable | Default | Why it matters |
+| ตัวแปร | Default | ทำไมสำคัญ |
 |---|---|---|
-| `COOKIE_SECURE` | `true` | Session cookies are `Secure`. Browsers keep them on `http://localhost`. **If you open the site by IP or another hostname over plain http, set `false`** or sign-in will not stick. |
-| `APP_ENV` | `development` | `test` enables `POST /api/v1/_test/reset` (and mock-pay's reset). Any other value removes the reset function from the DB. |
-| `CSRF_ALLOWED_ORIGINS` | `http://localhost:8080,http://localhost:3000` | Origins allowed to send cookie requests. Scripts using an admin cookie must send one of them as `Origin`. |
-| `ORDER_TTL_SECONDS` | `900` | Payment window before EXPIRED. |
-| `FAIL_RATE`, `TIMEOUT_RATE`, `SUCCESS_BUT_TIMEOUT_RATE`, `LATENCY_MS` | `0` | mock-game fault injection. |
+| `COOKIE_SECURE` | `true` | Session cookie เป็น `Secure` เบราว์เซอร์ยังเก็บไว้บน `http://localhost` **ถ้าเปิดเว็บด้วย IP หรือ hostname อื่นผ่าน http ธรรมดา ให้ตั้งเป็น `false`** ไม่เช่นนั้นการ login จะไม่ติด |
+| `APP_ENV` | `development` | `test` เปิดใช้ `POST /api/v1/_test/reset` (และ reset ของ mock-pay) ค่าอื่นจะลบฟังก์ชัน reset ออกจาก DB |
+| `CSRF_ALLOWED_ORIGINS` | `http://localhost:8080,http://localhost:3000` | Origin ที่อนุญาตให้ส่ง request พร้อม cookie สคริปต์ที่ใช้ cookie ของ admin ต้องส่งค่าใดค่าหนึ่งนี้เป็น `Origin` |
+| `ORDER_TTL_SECONDS` | `900` | ช่วงเวลาชำระเงินก่อนเป็น EXPIRED |
+| `FAIL_RATE`, `TIMEOUT_RATE`, `SUCCESS_BUT_TIMEOUT_RATE`, `LATENCY_MS` | `0` | การฉีด fault ของ mock-game |
 
-**Every secret in `docker-compose.yml` / `.env.example` is a test value and must be replaced
-before any real deployment:** `PAYMENT_WEBHOOK_SECRET`, `ORDER_EVENTS_TOKEN_SECRET`,
-`OTP_HASH_SECRET`, `POSTGRES_PASSWORD`, `APP_DB_PASSWORD`, and the seeded admin passwords. No
-`.env` is committed.
+**ทุก secret ใน `docker-compose.yml` / `.env.example` เป็นค่าทดสอบ และต้องเปลี่ยนก่อน
+deploy จริง:** `PAYMENT_WEBHOOK_SECRET`, `ORDER_EVENTS_TOKEN_SECRET`,
+`OTP_HASH_SECRET`, `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` และรหัสผ่าน admin ที่ seed ไว้ ไม่มี
+`.env` ถูก commit
 
-## Known limitations and accepted trade-offs
+<a id="known-limitations-and-accepted-trade-offs"></a>
+## ข้อจำกัดที่ทราบและ trade-off ที่ยอมรับ
 
-- **One worker.** Compose runs a single worker. Jobs are claimed with `FOR UPDATE SKIP LOCKED` and
-  fenced by `(id, attempts)`, but running 2 workers has not been tested. ADR 0002 "What remains"
-  describes the stall window that only a provider with real idempotency could close.
-- **mock-pay trusts `paid_satang` for payments it never saw.** Reviewers sign their own webhooks,
-  so the worker sends the paid amount with each refund and mock-pay records it if it has no
-  payment for that order. Acceptable only because it is a mock (ADR 0002).
-- **Rate limits fail open when Redis is down** (track, per-IP admin login). The OTP lock and the
-  per-email admin login lock live in Postgres and still hold (ADR 0005).
-- **Admin search is exact match** (order id or full email), no partial search.
-- **`/metrics` latency is per instance**; scrape `api-1` and `api-2` separately. DB-derived gauges
-  are the same on both.
-- **Long Postgres outage loses provider webhooks after their retries.** mock-pay retries 8 times
-  with exponential backoff (about 4 minutes in total); after that, reconciliation reports the
-  payment as `MISSING_IN_SYSTEM` and it is handled by hand ([RUNBOOK](RUNBOOK.md#reconciliation-mismatch)).
-- **NEEDS_REVIEW → COMPLETED has no admin endpoint.** The transition exists in the state machine;
-  today an operator does it in SQL ([RUNBOOK](RUNBOOK.md#orders-stuck-in-needs_review)).
-- **Low-severity security findings not fixed:** open redirect through mock-pay's `return_url`
-  (mock only); the webhook parses JSON before verifying the signature (body limited to 100 kb).
-- **`docker kill` is not restarted** by `restart: unless-stopped`; use `docker compose start <service>`.
-- `apps/api/README.md`, `apps/worker/README.md` and `apps/web/README.md` are still mostly the
-  framework starter text; the root documents are the reference.
+- **Worker ตัวเดียว** Compose รัน worker ตัวเดียว งานถูก claim ด้วย `FOR UPDATE SKIP LOCKED` และ
+  fence ด้วย `(id, attempts)` แต่ยังไม่ได้ทดสอบการรัน 2 worker ADR 0002 หัวข้อ "What remains"
+  อธิบายช่วง stall ที่มีแต่ผู้ให้บริการที่มี idempotency จริงเท่านั้นจะปิดได้
+- **mock-pay เชื่อ `paid_satang` สำหรับการชำระที่ตัวเองไม่เคยเห็น** ผู้ตรวจเซ็น webhook เอง
+  worker จึงส่งยอดที่ชำระไปพร้อมทุก refund และ mock-pay จะบันทึกยอดนั้นถ้าไม่มีการชำระของออเดอร์นั้น
+  ยอมรับได้เพราะเป็นแค่ mock เท่านั้น (ADR 0002)
+- **Rate limit fail open เมื่อ Redis ล่ม** (track, admin login ต่อ IP) การล็อก OTP และการล็อก
+  admin login ต่ออีเมลอยู่ใน Postgres จึงยังทำงาน (ADR 0005)
+- **การค้นหาของ admin เป็น exact match** (เลขออเดอร์หรืออีเมลเต็ม) ค้นหาบางส่วนไม่ได้
+- **latency ใน `/metrics` เป็นต่อ instance** ให้ scrape `api-1` และ `api-2` แยกกัน gauge ที่มาจาก DB
+  มีค่าเท่ากันทั้งสองตัว
+- **Postgres ล่มนานจะทำให้ webhook ของผู้ให้บริการหายหลัง retry หมด** mock-pay retry 8 ครั้ง
+  แบบ exponential backoff (รวมประมาณ 4 นาที) หลังจากนั้น reconciliation จะรายงานการชำระเป็น
+  `MISSING_IN_SYSTEM` และต้องจัดการด้วยมือ ([RUNBOOK](RUNBOOK.md#reconciliation-mismatch))
+- **NEEDS_REVIEW → COMPLETED ไม่มี admin endpoint** transition นี้มีอยู่ใน state machine;
+  ตอนนี้ operator ทำผ่าน SQL ([RUNBOOK](RUNBOOK.md#orders-stuck-in-needs_review))
+- **ปัญหาความปลอดภัยระดับต่ำที่ยังไม่แก้:** open redirect ผ่าน `return_url` ของ mock-pay
+  (เฉพาะ mock); webhook parse JSON ก่อนตรวจ signature (จำกัด body ไว้ 100 kb)
+- **`docker kill` จะไม่ถูก restart** โดย `restart: unless-stopped`; ใช้ `docker compose start <service>`
+- `apps/api/README.md`, `apps/worker/README.md` และ `apps/web/README.md` ส่วนใหญ่ยังเป็นข้อความ
+  starter ของ framework; เอกสารที่ root คือแหล่งอ้างอิง

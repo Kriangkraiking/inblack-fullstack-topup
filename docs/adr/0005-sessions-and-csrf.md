@@ -1,67 +1,67 @@
-# ADR 0005: Customer sessions, CSRF and rate limits
+# ADR 0005: Session ลูกค้า, CSRF และ rate limit
 
-Status: Draft. Built in `apps/api/src/customer-auth/` and `apps/api/src/security/`, proven by `scripts/audit/security.mjs`.
+สถานะ (Status): Draft สร้างใน `apps/api/src/customer-auth/` และ `apps/api/src/security/` พิสูจน์ด้วย `scripts/audit/security.mjs`
 
-## Context
+## บริบท (Context)
 
-Spec 8.4 asks for OTP sign-in (6 digits, 5 minutes, 5 wrong codes lock for 15 minutes, single use), httpOnly + Secure + SameSite session cookies, CSRF protection for requests that change data, a rate limit on `/orders/track` (10/min/IP, 5/min/order id, 429 with Retry-After), and the same answer for "no such order" and "wrong email". The API runs as two replicas behind nginx, so nothing can live in one process's memory.
+สเปกข้อ 8.4 ต้องการ OTP sign-in (6 หลัก, 5 นาที, ผิด 5 ครั้งล็อก 15 นาที, ใช้ครั้งเดียว), session cookie แบบ httpOnly + Secure + SameSite, การป้องกัน CSRF สำหรับ request ที่เปลี่ยนข้อมูล, rate limit บน `/orders/track` (10/min/IP, 5/min/order id, 429 พร้อม Retry-After) และคำตอบเดียวกันสำหรับ "ไม่มีออเดอร์นี้" กับ "อีเมลผิด" API รันสอง replica หลัง nginx จึงไม่มีอะไรอยู่ในหน่วยความจำของ process เดียวได้
 
-## Decisions
+## การตัดสินใจ (Decisions)
 
-### Sessions
+### Session
 
-- Customer sessions are server-side rows in `customer_sessions`, separate from `admin_sessions` (migration 0009), so a customer token can never be read as an admin one. Only the SHA-256 of the 32-byte token is stored.
-- Cookies `inblack_session` and `inblack_admin_session`: `HttpOnly; SameSite=Strict; Path=/`, `Secure` when `COOKIE_SECURE=true`. **Compose and `.env.example` set it to true** (decided by the user after the security review; it used to default to false). Browsers treat `http://localhost` as a secure context and keep Secure cookies there, so the web app on :3000 calling the API on :8080 still signs in; scripts send the cookie in a `Cookie` header themselves, so the flag does not affect them. Set it to false only to serve plain http on a host other than localhost. An unset variable (running `node dist/main` outside compose) still means false.
+- session ลูกค้าเป็นแถวฝั่ง server ใน `customer_sessions` แยกจาก `admin_sessions` (migration 0009) token ของลูกค้าจึงไม่มีทางถูกอ่านเป็นของ admin เก็บเฉพาะ SHA-256 ของ token ขนาด 32 bytes
+- cookie `inblack_session` และ `inblack_admin_session`: `HttpOnly; SameSite=Strict; Path=/`, `Secure` เมื่อ `COOKIE_SECURE=true` **Compose และ `.env.example` ตั้งเป็น true** (ผู้ใช้ตัดสินหลัง security review; เดิม default เป็น false) browser ถือว่า `http://localhost` เป็น secure context และเก็บ Secure cookie ไว้ได้ web app บน :3000 ที่เรียก API บน :8080 จึงยัง sign in ได้ ส่วน script ส่ง cookie ใน header `Cookie` เอง flag นี้จึงไม่กระทบ ตั้งเป็น false เฉพาะเมื่อเสิร์ฟ http ธรรมดาบน host อื่นที่ไม่ใช่ localhost ถ้าไม่ตั้งตัวแปร (รัน `node dist/main` นอก compose) ยังหมายถึง false
 
 ### OTP
 
-- Code from `crypto.randomInt`, stored as HMAC-SHA256(`OTP_HASH_SECRET`, email + code). A plain hash of a 6-digit code can be reversed by trying a million codes.
-- The counter and lock live in Postgres (`customer_otps`), not Redis, so the lock holds with Redis down. Verify takes the row with `SELECT ... FOR UPDATE`, decides in a pure function (`decideVerify`), and commits the failure count before answering. The success path also uses a conditional `UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()`. Ten verifies at once with the right code give one session (audit `otp/race`).
-- A wrong code while the stored one is used or expired counts as a failure. The right code sent again after use does not: only someone who had the code can send it, and a double submit must not lock out the person who just signed in. The first audit run caught this, see AI_LOG.
-- Asking for a new code does not reset the failure count, and no code is stored or sent while locked. A lock also drops the code.
-- `POST /auth/otp/request` answers 202 with the same body for every valid email, does no order lookup, and sends the email in the background, so neither body nor timing depends on the address. Postgres allows one new code per email per 30 s.
+- รหัสมาจาก `crypto.randomInt` เก็บเป็น HMAC-SHA256(`OTP_HASH_SECRET`, email + code) เพราะ hash ธรรมดาของรหัส 6 หลักย้อนกลับได้ด้วยการลองล้านรหัส
+- ตัวนับและการล็อกอยู่ใน Postgres (`customer_otps`) ไม่ใช่ Redis การล็อกจึงยังทำงานเมื่อ Redis ล่ม verify หยิบแถวด้วย `SELECT ... FOR UPDATE` ตัดสินใน pure function (`decideVerify`) และ commit จำนวนครั้งที่ผิดก่อนตอบ เส้นทางสำเร็จยังใช้ conditional `UPDATE ... WHERE consumed_at IS NULL AND expires_at > now()` verify สิบครั้งพร้อมกันด้วยรหัสที่ถูกได้ session เดียว (audit `otp/race`)
+- รหัสผิดขณะที่รหัสที่เก็บไว้ใช้ไปแล้วหรือหมดอายุนับเป็นความล้มเหลว แต่รหัสที่ถูกส่งซ้ำหลังใช้แล้วไม่นับ: เฉพาะคนที่มีรหัสเท่านั้นที่ส่งได้ และการกดซ้ำต้องไม่ล็อกคนที่เพิ่ง sign in รอบ audit แรกจับเรื่องนี้ได้ ดู AI_LOG
+- การขอรหัสใหม่ไม่รีเซ็ตจำนวนครั้งที่ผิด และไม่เก็บหรือส่งรหัสขณะถูกล็อก การล็อกยังทิ้งรหัสด้วย
+- `POST /auth/otp/request` ตอบ 202 ด้วย body เดียวกันสำหรับทุกอีเมลที่ valid ไม่ค้นหาออเดอร์ และส่งอีเมลเบื้องหลัง ทั้ง body และเวลาตอบจึงไม่ขึ้นกับที่อยู่อีเมล Postgres ยอมให้รหัสใหม่หนึ่งรหัสต่ออีเมลต่อ 30 s
 
-### Admin login limits
+### เพดานการ login ของ admin
 
-Before the security review an admin password could be guessed without limit. Now, checked before `verifyPassword` runs:
+ก่อน security review รหัสผ่าน admin เดาได้ไม่จำกัด ตอนนี้ตรวจก่อนที่ `verifyPassword` จะรัน:
 
-- **Per IP: 10 attempts a minute**, the same Redis fixed window as track, counted before the body is parsed. Fails open with Redis down, like the other per-IP limits.
-- **Per email: 5 attempts in a fixed 15 minute window, in Postgres** (`admin_login_attempts`, migration 0010). `admin_login_attempt()` counts the attempt in one upsert, which takes the row lock, so two replicas cannot both let a sixth guess through; the 6th and later answer 429 `LOGIN_LOCKED` with the seconds left as Retry-After. **It does not fail open**: with Postgres down login fails anyway. A successful login deletes the row. Rows are keyed by SHA-256 of the normalised email; finished windows are deleted on the next attempt by anyone.
-- Unknown emails are counted and locked exactly like real ones, and 401 `INVALID_CREDENTIALS` has the same bytes for both, so neither answer reveals whether an admin exists.
-- Trade-off: anyone can lock a known admin email for 15 minutes by sending 5 wrong passwords. Accepted for a back office with four accounts; the IP limit slows that down, and a per-account unlock needs an admin user screen this release does not have.
-- **Username sign-in** (migration 0011, requested for the redesigned admin dashboard): `POST /admin/auth/login` takes `{ login, password }` where `login` is an email (contains `@`) or a username, and still takes the original `{ email, password }`. Usernames match `^[A-Za-z0-9._-]{1,64}$`, are compared case-insensitively and are unique on `lower(username)`. A username attempt is counted under its own key (SHA-256 of the lower-cased username, counted before the lookup, so unknown usernames lock the same way) **and**, when the account exists, under that account's email key, so alternating email and username does not give one account more than 5 guesses per window. 401 has the same bytes for an unknown email, an unknown username and a wrong password. Small leak accepted: someone who already knows an admin's email and locks it can then learn whether a given username belongs to the same account (it answers 429 instead of 401).
+- **ต่อ IP: 10 ครั้งต่อนาที** ใช้ Redis fixed window แบบเดียวกับ track นับก่อน parse body ถ้า Redis ล่มจะ fail open เหมือนเพดานต่อ IP อื่น ๆ
+- **ต่ออีเมล: 5 ครั้งใน fixed window 15 นาที ใน Postgres** (`admin_login_attempts`, migration 0010) `admin_login_attempt()` นับครั้งใน upsert เดียวซึ่งถือ row lock สอง replica จึงปล่อยการเดาครั้งที่หกผ่านพร้อมกันไม่ได้ ครั้งที่ 6 เป็นต้นไปตอบ 429 `LOGIN_LOCKED` พร้อมวินาทีที่เหลือเป็น Retry-After **ไม่ fail open**: ถ้า Postgres ล่ม login ก็ล้มอยู่แล้ว login สำเร็จจะลบแถว แถวใช้ key เป็น SHA-256 ของอีเมลที่ normalise แล้ว window ที่จบแล้วถูกลบเมื่อมีใครพยายามครั้งถัดไป
+- อีเมลที่ไม่รู้จักถูกนับและล็อกเหมือนอีเมลจริงทุกประการ และ 401 `INVALID_CREDENTIALS` มี bytes เดียวกันทั้งสองแบบ คำตอบจึงไม่เผยว่ามี admin คนนั้นหรือไม่
+- Trade-off: ใครก็ล็อกอีเมล admin ที่รู้จักได้ 15 นาทีด้วยรหัสผิด 5 ครั้ง ยอมรับได้สำหรับ back office ที่มีสี่บัญชี เพดานต่อ IP ช่วยชะลอ และการปลดล็อกรายบัญชีต้องมีหน้าจัดการผู้ใช้ admin ซึ่ง release นี้ยังไม่มี
+- **Sign in ด้วย username** (migration 0011 ขอมาสำหรับ admin dashboard ที่ redesign): `POST /admin/auth/login` รับ `{ login, password }` โดย `login` เป็นอีเมล (มี `@`) หรือ username และยังรับ `{ email, password }` แบบเดิม username ต้องตรง `^[A-Za-z0-9._-]{1,64}$` เทียบแบบไม่สนตัวพิมพ์ และ unique บน `lower(username)` การพยายามด้วย username นับใต้ key ของตัวเอง (SHA-256 ของ username ตัวพิมพ์เล็ก นับก่อน lookup ดังนั้น username ที่ไม่รู้จักถูกล็อกแบบเดียวกัน) **และ** เมื่อบัญชีมีอยู่จริง นับใต้ key อีเมลของบัญชีนั้นด้วย การสลับอีเมลกับ username จึงไม่ทำให้บัญชีเดียวได้เดาเกิน 5 ครั้งต่อ window 401 มี bytes เดียวกันสำหรับอีเมลที่ไม่รู้จัก, username ที่ไม่รู้จัก และรหัสผ่านผิด ยอมรับการรั่วเล็กน้อย: คนที่รู้อีเมลของ admin อยู่แล้วและล็อกมันไว้ จะรู้ได้ว่า username หนึ่งเป็นของบัญชีเดียวกันหรือไม่ (ตอบ 429 แทน 401)
 
-Login and `/auth/otp/verify` accept only `application/json` (415 `UNSUPPORTED_MEDIA_TYPE` otherwise). They skip the Origin check because they read no cookie, and a cross-site HTML form can post urlencoded or text/plain without a preflight, which would sign the victim's browser into the attacker's account (login CSRF). JSON from another origin needs a CORS preflight, which the allowlist refuses.
+Login และ `/auth/otp/verify` รับเฉพาะ `application/json` (ไม่เช่นนั้น 415 `UNSUPPORTED_MEDIA_TYPE`) สองตัวนี้ข้ามการตรวจ Origin เพราะไม่อ่าน cookie และ HTML form ข้ามเว็บสามารถ post แบบ urlencoded หรือ text/plain ได้โดยไม่มี preflight ซึ่งจะ sign browser ของเหยื่อเข้าบัญชีของผู้โจมตี (login CSRF) JSON จาก origin อื่นต้องผ่าน CORS preflight ซึ่ง allowlist ปฏิเสธ
 
 ### CSRF
 
-SameSite=Strict already keeps the cookies off cross-site requests. On top of that, `CsrfGuard` (global, before the admin guard) refuses with 403 `CSRF_ORIGIN_MISMATCH` any POST/PUT/PATCH/DELETE that carries a session cookie unless its `Origin` header is exactly in `CSRF_ALLOWED_ORIGINS` (default `http://localhost:8080,http://localhost:3000`). A missing Origin is refused too: browsers send Origin on every POST, so only a non-browser client leaves it out, and such a client can add it.
+SameSite=Strict กัน cookie ไม่ให้ไปกับ request ข้ามเว็บอยู่แล้ว เพิ่มจากนั้น `CsrfGuard` (global, ก่อน admin guard) ปฏิเสธด้วย 403 `CSRF_ORIGIN_MISMATCH` ทุก POST/PUT/PATCH/DELETE ที่มี session cookie เว้นแต่ header `Origin` อยู่ใน `CSRF_ALLOWED_ORIGINS` ตรงทุกตัวอักษร (default `http://localhost:8080,http://localhost:3000`) Origin ที่หายไปก็ถูกปฏิเสธ: browser ส่ง Origin ในทุก POST จึงมีแต่ client ที่ไม่ใช่ browser ที่ไม่ส่ง และ client แบบนั้นเพิ่มเองได้
 
-Why not a double-submit token: it needs a token endpoint, client code on every request and handling for expiry. SameSite=Strict plus an exact Origin allowlist covers the same attacks for the browsers we support, with nothing for the frontend to do except call with `credentials: 'include'`. "Same site" is not enough on its own, because `localhost:3000` and `localhost:8080` are one site; the Origin check tells them apart.
+ทำไมไม่ใช้ double-submit token: ต้องมี token endpoint, โค้ดฝั่ง client ในทุก request และการจัดการหมดอายุ SameSite=Strict บวก Origin allowlist แบบตรงตัวครอบคลุมการโจมตีเดียวกันสำหรับ browser ที่เรารองรับ โดย frontend ไม่ต้องทำอะไรนอกจากเรียกด้วย `credentials: 'include'` "Same site" อย่างเดียวไม่พอ เพราะ `localhost:3000` และ `localhost:8080` เป็น site เดียวกัน การตรวจ Origin แยกสองตัวนี้ออก
 
-Exempt with `@SkipCsrf()` because they never read a cookie: the payment webhook, `POST /orders`, `POST /orders/track`, `/auth/otp/*`. CORS uses the same origin list with credentials, so an origin that may read answers is exactly one that may send cookie requests.
+ยกเว้นด้วย `@SkipCsrf()` เพราะไม่เคยอ่าน cookie: payment webhook, `POST /orders`, `POST /orders/track`, `/auth/otp/*` CORS ใช้รายการ origin เดียวกันพร้อม credentials origin ที่อ่านคำตอบได้จึงเป็นชุดเดียวกับที่ส่ง request พร้อม cookie ได้
 
-### Rate limits
+### Rate limit
 
-- Fixed one-minute windows in Redis: one Lua script does INCR and PEXPIRE together, so both replicas share the counter and no key is left without expiry. Keys hold a SHA-256 of the subject, not the IP or email.
-- Client IP: nginx sets `X-Real-IP` and `X-Forwarded-For` to `$remote_addr`, replacing whatever the client sent (it used to append to X-Forwarded-For). The API reads X-Real-IP. The replicas are not published outside the compose network, so only nginx can set it. Audit `track/spoof` shows a client header does not reset the count.
-- Track counts the IP before parsing and the order id after, so malformed requests still use up the IP allowance.
-- **Redis down: fail open.** The limiter lets the request through, with a command timeout of 300 ms and a warning at most once a minute. Track only reads, the per-order key keeps guessing slow while Redis is up, and refusing all tracking during a Redis outage would take a customer feature down for a defence-in-depth control. Nothing that guards money or the OTP lock depends on Redis. OTP sends are still held to one per email per 30 s by Postgres.
+- Fixed window หนึ่งนาทีใน Redis: Lua script เดียวทำ INCR และ PEXPIRE พร้อมกัน ทั้งสอง replica จึงใช้ตัวนับร่วมกันและไม่มี key ค้างโดยไม่มี expiry key เก็บ SHA-256 ของ subject ไม่ใช่ IP หรืออีเมล
+- Client IP: nginx ตั้ง `X-Real-IP` และ `X-Forwarded-For` เป็น `$remote_addr` แทนที่ค่าที่ client ส่งมา (เดิมต่อท้าย X-Forwarded-For) API อ่าน X-Real-IP replica ไม่ได้ publish ออกนอก compose network จึงมีแต่ nginx ที่ตั้งได้ audit `track/spoof` แสดงว่า header จาก client ไม่รีเซ็ตตัวนับ
+- Track นับ IP ก่อน parse และนับ order id หลัง parse request ที่ผิดรูปแบบจึงยังใช้โควตา IP
+- **Redis ล่ม: fail open** limiter ปล่อย request ผ่าน โดยมี command timeout 300 ms และ warning ไม่เกินนาทีละครั้ง Track แค่อ่าน key ต่อออเดอร์ทำให้การเดาช้าขณะ Redis ปกติ และการปฏิเสธ tracking ทั้งหมดระหว่าง Redis ล่มจะทำให้ฟีเจอร์ลูกค้าล่มเพื่อแลกกับ control แบบ defence-in-depth ไม่มีอะไรที่ปกป้องเงินหรือการล็อก OTP พึ่ง Redis การส่ง OTP ยังถูกจำกัดหนึ่งครั้งต่ออีเมลต่อ 30 s โดย Postgres
 
-### Enumeration on track
+### Enumeration บน track
 
-Unknown order and wrong email run the same single query (`WHERE id = $1 AND email = $2`) and throw the same `orderNotFound()`. The audit compares the bodies byte for byte and the medians of 60 requests each (about 9% apart, threshold 20%).
+ออเดอร์ที่ไม่รู้จักและอีเมลผิดรัน query เดียวกัน (`WHERE id = $1 AND email = $2`) และ throw `orderNotFound()` ตัวเดียวกัน audit เทียบ body ทีละ byte และเทียบ median ของ 60 request แต่ละแบบ (ต่างกันประมาณ 9%, เกณฑ์ 20%)
 
-### Exposure
+### การเปิดเผย (Exposure)
 
-- Every published port binds to 127.0.0.1 and Redis is not published at all (nothing on the host uses it; integration tests start their own). Postgres stays on 127.0.0.1:5433 for a local DB client.
-- nginx refuses `/metrics` in any spelling with a case-insensitive regex location, and the API routes paths case-sensitively (`configureHttp`), so `/METRICS` no longer reaches the handler even inside the network. `server_tokens off`.
-- A viewer may search the admin order list by order id only; an email in `q` answers 403 `EMAIL_SEARCH_FORBIDDEN`, because finding orders by a full email would unmask the buyer the list masks.
+- ทุก port ที่ publish bind กับ 127.0.0.1 และ Redis ไม่ได้ publish เลย (ไม่มีอะไรบน host ใช้ integration test เริ่มตัวเอง) Postgres อยู่ที่ 127.0.0.1:5433 สำหรับ DB client บนเครื่อง
+- nginx ปฏิเสธ `/metrics` ทุกรูปแบบการสะกดด้วย location แบบ regex ไม่สนตัวพิมพ์ และ API route path แบบสนตัวพิมพ์ (`configureHttp`) `/METRICS` จึงไม่ถึง handler แม้อยู่ใน network `server_tokens off`
+- viewer ค้นรายการออเดอร์ admin ได้ด้วย order id เท่านั้น อีเมลใน `q` ตอบ 403 `EMAIL_SEARCH_FORBIDDEN` เพราะการค้นออเดอร์ด้วยอีเมลเต็มจะเปิดเผยผู้ซื้อที่รายการ mask ไว้
 
-## Consequences
+## ผลที่ตามมา (Consequences)
 
-- A client outside the browser that uses a session cookie (scripts, curl) must send an allowed Origin. `scripts/audit/invariants.mjs` does.
-- A third-party frontend origin must be added to `CSRF_ALLOWED_ORIGINS`.
-- If the web app proxies API calls through its own server instead of calling `:8080` from the browser, nginx sees the web container's address and every user shares one rate limit bucket. The browser should call the API directly.
-- During a Redis outage the track limit and the per-IP admin login limit are not enforced; the per-email admin login limit and the OTP lock still are.
-- Running the stack on plain http under a name other than localhost needs `COOKIE_SECURE=false`, or browsers drop the session cookies.
+- client นอก browser ที่ใช้ session cookie (script, curl) ต้องส่ง Origin ที่อนุญาต `scripts/audit/invariants.mjs` ทำแบบนั้น
+- frontend origin ของบุคคลที่สามต้องเพิ่มใน `CSRF_ALLOWED_ORIGINS`
+- ถ้า web app proxy การเรียก API ผ่าน server ของตัวเองแทนการเรียก `:8080` จาก browser nginx จะเห็น address ของ web container และผู้ใช้ทุกคนจะใช้ rate limit bucket เดียวกัน browser ควรเรียก API โดยตรง
+- ระหว่าง Redis ล่ม เพดาน track และเพดาน login admin ต่อ IP ไม่ถูกบังคับ แต่เพดาน login admin ต่ออีเมลและการล็อก OTP ยังทำงาน
+- การรัน stack บน http ธรรมดาด้วยชื่ออื่นที่ไม่ใช่ localhost ต้องตั้ง `COOKIE_SECURE=false` ไม่เช่นนั้น browser จะทิ้ง session cookie

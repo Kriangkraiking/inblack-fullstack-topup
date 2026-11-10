@@ -1,63 +1,63 @@
-# ADR 0001: Preventing oversell and duplicate orders
+# ADR 0001: การป้องกัน oversell และออเดอร์ซ้ำ
 
-Status: Draft.
+สถานะ (Status): Draft
 
-## Context
+## บริบท (Context)
 
-Two API replicas take orders at the same time, so nothing held in the memory of one process can protect stock, voucher limits or idempotency. Spec 5.4 makes any oversell or over-use of a voucher an immediate failure.
+API สอง replica รับออเดอร์พร้อมกัน ดังนั้นอะไรที่เก็บในหน่วยความจำของ process เดียวไม่สามารถปกป้อง stock, เพดานการใช้ voucher หรือ idempotency ได้ สเปกข้อ 5.4 กำหนดว่า oversell หรือใช้ voucher เกินแม้ครั้งเดียวคือตกทันที
 
-## Decision
+## การตัดสินใจ (Decision)
 
-All of it is settled in Postgres, in one transaction per request.
+ทั้งหมดตัดสินใน Postgres ภายใน transaction เดียวต่อหนึ่ง request
 
-| Rule | Mechanism |
+| กฎ | กลไก |
 |---|---|
-| Stock | `UPDATE products SET stock = stock - $n WHERE sku = $s AND stock >= $n`. Zero rows means `OUT_OF_STOCK`. `CHECK (stock >= 0)` is the last line of defence. |
-| Voucher total | `UPDATE vouchers SET used_count = used_count + 1 WHERE ... used_count < max_uses`. Zero rows means `VOUCHER_EXHAUSTED`. `CHECK (used_count <= max_uses)` backs it up. |
-| Per email | `pg_advisory_xact_lock(727002, hashtext(email))`, then the count, then the write. A SUM over rows other requests are still inserting cannot be protected by a row lock, so the lock covers the whole email. The partial unique index on `voucher_redemptions` backs up the voucher case. |
-| Idempotency | See below. |
+| Stock | `UPDATE products SET stock = stock - $n WHERE sku = $s AND stock >= $n` ถ้าได้ 0 แถวคือ `OUT_OF_STOCK` และ `CHECK (stock >= 0)` เป็นด่านสุดท้าย |
+| ยอดรวมของ voucher | `UPDATE vouchers SET used_count = used_count + 1 WHERE ... used_count < max_uses` ถ้าได้ 0 แถวคือ `VOUCHER_EXHAUSTED` และมี `CHECK (used_count <= max_uses)` หนุนอีกชั้น |
+| ต่ออีเมล | `pg_advisory_xact_lock(727002, hashtext(email))` แล้วค่อยนับ แล้วค่อยเขียน การ SUM ข้ามแถวที่ request อื่นกำลัง insert อยู่ป้องกันด้วย row lock ไม่ได้ จึงล็อกทั้งอีเมล ส่วนกรณี voucher มี partial unique index บน `voucher_redemptions` หนุนอีกชั้น |
+| Idempotency | ดูด้านล่าง |
 
-### Idempotency in a single transaction
+### Idempotency ใน transaction เดียว
 
-The key row is inserted with `ON CONFLICT DO NOTHING` as the first statement, in the same transaction as the reservation and the stored response.
+แถวของ key ถูก insert ด้วย `ON CONFLICT DO NOTHING` เป็นคำสั่งแรก ใน transaction เดียวกับการจอง stock และ response ที่บันทึกไว้
 
-- A parallel request with the same key blocks on the unique index until the first transaction ends, then reads the committed response. No polling is needed.
-- A crash rolls back the key as well, so a key cannot stay stuck "in progress", and there is no status for that to represent.
-- Business errors such as `OUT_OF_STOCK` roll back to a savepoint, which keeps the key and stores the error, so a retry gets the same answer.
-- 5XX errors roll back everything, so a retry runs again and can succeed.
-- A body that fails validation is not stored, so a client can fix it and keep the key.
-- Requests are compared by a hash of the validated input, not the raw body, so formatting and unknown fields cannot make the same request look different.
+- request ที่มาขนานกันด้วย key เดียวกันจะรอที่ unique index จนกว่า transaction แรกจบ แล้วอ่าน response ที่ commit แล้ว ไม่ต้อง polling
+- ถ้า crash ตัว key ก็ถูก rollback ไปด้วย จึงไม่มี key ค้างสถานะ "กำลังทำ" และไม่มีสถานะนั้นให้ค้างตั้งแต่แรก
+- error เชิงธุรกิจ เช่น `OUT_OF_STOCK` จะ rollback ไปที่ savepoint ซึ่งยังเก็บ key และบันทึก error ไว้ เมื่อ retry จึงได้คำตอบเดิม
+- error 5XX จะ rollback ทั้งหมด retry จึงรันใหม่และอาจสำเร็จได้
+- body ที่ไม่ผ่าน validation จะไม่ถูกบันทึก client จึงแก้แล้วใช้ key เดิมได้
+- เปรียบเทียบ request ด้วย hash ของ input ที่ validate แล้ว ไม่ใช่ raw body รูปแบบการจัดวางหรือ field ที่ไม่รู้จักจึงทำให้ request เดียวกันดูต่างกันไม่ได้
 
-The alternative was a separate "reserve key" commit followed by the work, with waiters polling. That needs a recovery path for abandoned keys and gives nothing in return here.
+ทางเลือกอื่นคือ commit "จอง key" แยกก่อนแล้วค่อยทำงาน โดยให้ตัวที่รอ polling วิธีนั้นต้องมีเส้นทางกู้ key ที่ถูกทิ้ง และไม่ได้อะไรเพิ่มในกรณีนี้
 
-The trade-off is that a waiting request holds a pooled connection while it blocks. The request it waits for already has its own connection and never takes a second one, so this cannot deadlock the pool.
+Trade-off คือ request ที่รออยู่ถือ connection จาก pool ระหว่างที่ block แต่ request ที่มันรอมี connection ของตัวเองอยู่แล้วและไม่ขอเพิ่ม จึงไม่ทำให้ pool deadlock
 
-### Lock order
+### ลำดับการล็อก (Lock order)
 
-Every writer takes locks in this order, which keeps these paths free of deadlocks:
+ทุกตัวที่เขียนข้อมูลล็อกตามลำดับนี้ ทำให้เส้นทางเหล่านี้ไม่เกิด deadlock
 
 1. Idempotency key
 2. Email advisory lock
-3. Existing order row (expiry and webhooks; order creation has none)
-4. Products, sorted by SKU
+3. แถวออเดอร์ที่มีอยู่แล้ว (expiry และ webhook; การสร้างออเดอร์ไม่มีขั้นนี้)
+4. Products เรียงตาม SKU
 5. Voucher
 
-The late-payment path in ADR 0004 re-acquires stock and vouchers, so it must follow the same order and take the same advisory lock. Expiry handles one order per transaction, because a batch could hold a voucher from its first order while waiting on a product for its second.
+เส้นทางจ่ายเงินช้าใน ADR 0004 จองคืน stock และ voucher จึงต้องใช้ลำดับเดียวกันและขอ advisory lock ตัวเดียวกัน ส่วน expiry จัดการทีละออเดอร์ต่อ transaction เพราะถ้าทำเป็น batch อาจถือ voucher ของออเดอร์แรกไว้ขณะรอ product ของออเดอร์ที่สอง
 
 ### Database role
 
-api and worker connect as `inblack_app`, which is not a superuser and owns nothing. Otherwise a bug or an injected statement could disable the triggers that these guarantees rely on. Only `migrate` uses the owner. Each new table needs its own GRANT, because the role gets no default privileges.
+api และ worker เชื่อมต่อด้วย `inblack_app` ซึ่งไม่ใช่ superuser และไม่ได้เป็นเจ้าของอะไรเลย ไม่เช่นนั้น bug หรือคำสั่งที่ถูก inject อาจปิด trigger ที่การรับประกันเหล่านี้พึ่งพา มีเพียง `migrate` ที่ใช้ owner ตารางใหม่ทุกตารางต้อง GRANT เอง เพราะ role นี้ไม่ได้ default privileges
 
-### Admin stock edits
+### การแก้ stock โดย admin
 
-`PATCH /api/v1/admin/products/{sku}` (superadmin) sets the units left. It takes only the product row (`SELECT ... FOR UPDATE`, step 4 above, with nothing before it), so it cannot deadlock with order creation, expiry or webhooks, and they wait on the same row. Order creation still takes stock with its own conditional update; nothing in that path changed.
+`PATCH /api/v1/admin/products/{sku}` (superadmin) ตั้งจำนวนคงเหลือ โดยล็อกเฉพาะแถว product (`SELECT ... FOR UPDATE` ขั้นที่ 4 ข้างบน โดยไม่มีอะไรนำหน้า) จึงไม่ deadlock กับการสร้างออเดอร์ expiry หรือ webhook และทั้งหมดรอที่แถวเดียวกัน การสร้างออเดอร์ยังตัด stock ด้วย conditional update ของตัวเอง ไม่มีอะไรเปลี่ยนในเส้นทางนั้น
 
-- The request must carry `expected_stock`, the value the admin saw. Under the lock it is compared with the current stock, and the `UPDATE` repeats the comparison in its `WHERE`. A sale in between gives 409 `STOCK_CHANGED` instead of silently undoing or doubling it.
-- Switching between limited and unlimited is refused (409 `STOCK_MODE_LOCKED`). `release_order_holds` returns stock only to limited products, so orders placed while a product was unlimited would add units that were never taken once it became limited, and the shop could sell more than the admin set. Supporting it needs a record of which orders actually took stock; not needed now.
-- `CHECK (stock >= 0)` still backs everything.
-- Prices: `order_items` keeps `unit_price_satang` and `name_snapshot` and is append-only, and `orders` keeps every total, so a price change reaches new orders only; webhooks compare against `orders.total_satang` and refunds against `paid_satang`.
+- request ต้องส่ง `expected_stock` คือค่าที่ admin เห็น ภายใต้ล็อกจะเทียบกับ stock ปัจจุบัน และ `UPDATE` ก็เทียบซ้ำใน `WHERE` ถ้ามีการขายเกิดขึ้นระหว่างนั้นจะได้ 409 `STOCK_CHANGED` แทนที่จะเงียบ ๆ ลบล้างหรือนับซ้ำ
+- การสลับระหว่างจำกัดกับไม่จำกัดถูกปฏิเสธ (409 `STOCK_MODE_LOCKED`) เพราะ `release_order_holds` คืน stock ให้เฉพาะสินค้าที่จำกัด ออเดอร์ที่สั่งตอนสินค้ายังไม่จำกัดจะเพิ่มหน่วยที่ไม่เคยถูกตัดเมื่อสินค้ากลายเป็นจำกัด และร้านอาจขายได้มากกว่าที่ admin ตั้ง การรองรับต้องมีบันทึกว่าออเดอร์ไหนตัด stock จริง ตอนนี้ยังไม่จำเป็น
+- `CHECK (stock >= 0)` ยังหนุนทุกอย่าง
+- ราคา: `order_items` เก็บ `unit_price_satang` และ `name_snapshot` และเป็น append-only ส่วน `orders` เก็บยอดรวมทุกตัว การเปลี่ยนราคาจึงมีผลกับออเดอร์ใหม่เท่านั้น webhook เทียบกับ `orders.total_satang` และ refund เทียบกับ `paid_satang`
 
-## Consequences
+## ผลที่ตามมา (Consequences)
 
-- Flash sale orders run one at a time through the product row. That is the point, and the lock is held for a few short statements.
-- `POST /api/v1/_test/reset` needs `APP_ENV=test` on both `migrate` and the API. `migrate` installs a `SECURITY DEFINER` function with a fixed `search_path`, grants it to `inblack_app`, and drops it whenever `APP_ENV` is anything else. The API container never holds the owner's password.
+- ออเดอร์ flash sale วิ่งทีละรายการผ่านแถว product ซึ่งเป็นจุดประสงค์อยู่แล้ว และล็อกถูกถือไว้แค่ไม่กี่คำสั่งสั้น ๆ
+- `POST /api/v1/_test/reset` ต้องตั้ง `APP_ENV=test` ทั้งที่ `migrate` และ API โดย `migrate` ติดตั้งฟังก์ชัน `SECURITY DEFINER` ที่กำหนด `search_path` ตายตัว, grant ให้ `inblack_app` และ drop ทิ้งเมื่อ `APP_ENV` เป็นค่าอื่น container ของ API ไม่เคยถือรหัสผ่านของ owner
