@@ -10,9 +10,15 @@ export function StatusBadge({ status }: { status: string }) {
 /** All text from the API is rendered as React text nodes, never as HTML. */
 export function Timeline({ events, showActor = false }: { events: TimelineEvent[]; showActor?: boolean }) {
   if (events.length === 0) return <p className="muted">ยังไม่มีความเคลื่อนไหว</p>;
+  // Oldest first by order_events id; the API does not promise an order.
+  const sorted = [...events].sort((a, b) => {
+    const x = BigInt(a.event_id);
+    const y = BigInt(b.event_id);
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
   return (
     <ol className="timeline">
-      {events.map((event) => (
+      {sorted.map((event) => (
         <li key={event.event_id}>
           <div className="row">
             <strong>{eventLabel(event.event_type, event.status)}</strong>
