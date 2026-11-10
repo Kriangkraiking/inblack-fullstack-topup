@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "จัดการสินค้า
 export default function AdminProductsPage() {
   return (
     <>
-      <h1>ผู้ดูแลระบบ: จัดการสินค้า</h1>
+      <h1 className="page-title">จัดการสินค้า</h1>
       <ProductsAdmin />
     </>
   );

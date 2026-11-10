@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { formatBaht, formatSatang, parseBahtToSatang } from "@/lib/money";
 import type { AdminProduct } from "@/lib/types";
-import { hasRole, useAdminIdentity } from "@/lib/use-admin";
+import { hasRole, useAdminSession } from "@/lib/use-admin";
 
 const MAX_STOCK = 1_000_000;
 
@@ -14,23 +14,8 @@ const MAX_STOCK = 1_000_000;
  * Names are rendered as React text, never as HTML (spec 8.4).
  */
 export function ProductsAdmin() {
-  const { identity, error } = useAdminIdentity();
-  if (identity === undefined) {
-    return error ? (
-      <p className="alert alert-error" role="alert">
-        {error}
-      </p>
-    ) : (
-      <p aria-busy="true">กำลังตรวจสอบการเข้าสู่ระบบ…</p>
-    );
-  }
-  if (identity === null) {
-    return (
-      <p>
-        กรุณา <Link href="/admin">เข้าสู่ระบบผู้ดูแล</Link> ก่อน
-      </p>
-    );
-  }
+  // The admin shell only renders pages when signed in.
+  const { identity } = useAdminSession();
   if (!hasRole(identity, "superadmin")) {
     return (
       <p className="alert alert-error" role="alert">

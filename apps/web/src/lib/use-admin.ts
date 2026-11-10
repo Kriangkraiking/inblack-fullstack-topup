@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, ApiError, describeError } from "./api";
 import type { AdminIdentity, AdminRole } from "./types";
 
@@ -32,4 +32,27 @@ export function useAdminIdentity() {
   }, [load]);
 
   return { identity, setIdentity, error, reload: load };
+}
+
+export interface AdminSession {
+  identity: AdminIdentity;
+  /** Forget the session in the UI (after logout or a 401); the shell shows the login form. */
+  signOut: () => void;
+}
+
+/**
+ * The admin shell (app/admin/admin-shell.tsx) checks /admin/auth/me once and
+ * only renders pages when signed in, so pages read the identity from here
+ * instead of each calling /me again.
+ */
+export const AdminSessionContext = createContext<AdminSession | null>(null);
+
+export function useAdminSession(): AdminSession {
+  const session = useContext(AdminSessionContext);
+  if (!session) throw new Error("useAdminSession must be used inside the admin shell");
+  return session;
+}
+
+export async function adminLogout(): Promise<void> {
+  await api("/admin/auth/logout", { method: "POST" });
 }

@@ -11,7 +11,7 @@ export default async function AdminOrderPage({ params }: PageProps<"/admin/order
       <p>
         <Link href="/admin">กลับไปตารางออเดอร์</Link>
       </p>
-      <h1>ออเดอร์ {id}</h1>
+      <h1 className="page-title">ออเดอร์ {id}</h1>
       <AdminOrderDetail orderId={id} />
     </>
   );

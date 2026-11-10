@@ -8,8 +8,8 @@ export const metadata: Metadata = {
 
 export default function MyOrdersPage() {
   return (
-    <div className="stack">
-      <h1>ออเดอร์ของฉัน</h1>
+    <div className="stack narrow">
+      <h1 className="page-title">ออเดอร์ของฉัน</h1>
       <MyOrdersClient />
     </div>
   );

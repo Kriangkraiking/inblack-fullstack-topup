@@ -2,102 +2,152 @@
 
 import { ORDER_STATUSES } from "@inblack/domain";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { StatusBadge } from "@/components/order-view";
 import { api, ApiError, describeError } from "@/lib/api";
 import { formatDateTime, statusLabel } from "@/lib/labels";
 import { formatBaht } from "@/lib/money";
-import type { AdminIdentity, OrderSummary, Page } from "@/lib/types";
-import { hasRole, useAdminIdentity } from "@/lib/use-admin";
+import type { AdminStats, OrderSummary, Page } from "@/lib/types";
+import { useAdminSession } from "@/lib/use-admin";
 
+/** Dashboard: summary cards on top, the filterable order table below. */
 export function AdminHome() {
-  const { identity, setIdentity, error, reload } = useAdminIdentity();
-  if (identity === undefined) {
-    if (error) {
-      return (
+  return (
+    <>
+      <StatsPanel />
+      <AdminOrders />
+    </>
+  );
+}
+
+const STATS_REFRESH_MS = 10_000;
+
+type StatsState =
+  | { kind: "loading" }
+  | { kind: "ready"; stats: AdminStats }
+  | { kind: "unavailable" } // 404: an API without /admin/stats
+  | { kind: "error"; message: string };
+
+function StatsPanel() {
+  const { signOut } = useAdminSession();
+  const [state, setState] = useState<StatsState>({ kind: "loading" });
+
+  const load = useCallback(async () => {
+    try {
+      const stats = await api<AdminStats>("/admin/stats");
+      setState({ kind: "ready", stats });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) signOut();
+      else if (err instanceof ApiError && err.status === 404) setState({ kind: "unavailable" });
+      // Keep the last good numbers on a passing failure; show the error only before any data.
+      else setState((prev) => (prev.kind === "ready" ? prev : { kind: "error", message: describeError(err) }));
+    }
+  }, [signOut]);
+
+  useEffect(() => {
+    const first = setTimeout(load, 0);
+    const timer = setInterval(load, STATS_REFRESH_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [load]);
+
+  return (
+    <section className="stack" aria-labelledby="stats-heading">
+      <div className="row spread">
+        <h1 id="stats-heading" className="page-title">
+          แดชบอร์ด
+        </h1>
+        {state.kind === "ready" && (
+          <p className="small muted">
+            อัปเดตทุก 10 วินาที · ล่าสุด {formatDateTime(state.stats.generated_at)}
+          </p>
+        )}
+      </div>
+      {state.kind === "loading" && (
+        <div className="stat-grid" aria-busy="true" aria-label="กำลังโหลดข้อมูลสรุป">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="stat-card">
+              <div className="stat-card__icon skeleton" />
+              <div className="skeleton" />
+            </div>
+          ))}
+        </div>
+      )}
+      {state.kind === "unavailable" && <p className="card empty">ยังไม่มีข้อมูลสรุป</p>}
+      {state.kind === "error" && (
         <div className="alert alert-error" role="alert">
-          <p>{error}</p>
-          <button type="button" className="btn btn-secondary" onClick={reload}>
+          <p>โหลดข้อมูลสรุปไม่สำเร็จ: {state.message}</p>
+          <button type="button" className="btn btn-secondary btn-small" onClick={load}>
             ลองอีกครั้ง
           </button>
         </div>
-      );
-    }
-    return <p aria-busy="true">กำลังตรวจสอบการเข้าสู่ระบบ…</p>;
-  }
-  if (identity === null) return <AdminLogin onSignedIn={setIdentity} />;
-  return <AdminOrders identity={identity} onSignedOut={() => setIdentity(null)} />;
+      )}
+      {state.kind === "ready" && (
+        <>
+          <ul className="stat-grid list-unstyled">
+            <StatCard label="ออเดอร์วันนี้" value={state.stats.orders_today.toLocaleString("th-TH")} icon="M4 5h16M4 12h16M4 19h10" />
+            <StatCard label="ยอดขายวันนี้" value={formatBaht(state.stats.revenue_today_satang)} icon="M12 3v18M17 7H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6" />
+            <StatCard
+              label="ออเดอร์ / นาที"
+              value={state.stats.orders_last_minute.toLocaleString("th-TH")}
+              note={`ชั่วโมงล่าสุด ${state.stats.orders_last_hour.toLocaleString("th-TH")}`}
+              icon="M12 7v5l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"
+            />
+            <StatCard label="คิวเติมเกม" value={state.stats.queue_depth.toLocaleString("th-TH")} icon="M4 7h16M4 12h12M4 17h8" />
+            <StatCard
+              label="Dead letter ที่ค้าง"
+              value={state.stats.dead_letters_open.toLocaleString("th-TH")}
+              icon="M12 8v5M12 16.5v.5M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0"
+              alert={state.stats.dead_letters_open > 0}
+            />
+          </ul>
+          {Object.keys(state.stats.by_status ?? {}).length > 0 && (
+            <div className="card">
+              <h2 className="small">ออเดอร์ตามสถานะ</h2>
+              <ul className="status-strip">
+                {Object.entries(state.stats.by_status).map(([status, count]) => (
+                  <li key={status} className="row">
+                    <StatusBadge status={status} />
+                    <span className="small">{count.toLocaleString("th-TH")}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
 }
 
-function AdminLogin({ onSignedIn }: { onSignedIn: (identity: AdminIdentity) => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const emailRef = useRef<HTMLInputElement>(null);
-
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!email.trim() || !password) {
-      setError("กรอกอีเมลและรหัสผ่าน");
-      emailRef.current?.focus();
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      onSignedIn(
-        await api<AdminIdentity>("/admin/auth/login", { method: "POST", body: { email: email.trim(), password } }),
-      );
-    } catch (err) {
-      setError(describeError(err));
-      emailRef.current?.focus();
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function StatCard({
+  label,
+  value,
+  note,
+  icon,
+  alert = false,
+}: {
+  label: string;
+  value: ReactNode;
+  note?: string;
+  icon: string;
+  alert?: boolean;
+}) {
   return (
-    <form className="card stack" onSubmit={onSubmit} noValidate>
-      <h2>เข้าสู่ระบบผู้ดูแล</h2>
-      <div className="field">
-        <label htmlFor="admin-email">อีเมล</label>
-        <input
-          ref={emailRef}
-          id="admin-email"
-          className="input"
-          type="email"
-          autoComplete="username"
-          value={email}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "admin-login-error" : undefined}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="admin-password">รหัสผ่าน</label>
-        <input
-          id="admin-password"
-          className="input"
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? "admin-login-error" : undefined}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-      </div>
-      {error && (
-        <p id="admin-login-error" className="error-text" role="alert">
-          {error}
-        </p>
-      )}
+    <li className={`stat-card${alert ? " stat-card--alert" : ""}`}>
+      <span className="stat-card__icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d={icon} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
       <div>
-        <button type="submit" className="btn" disabled={busy}>
-          {busy ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
-        </button>
+        <p className="stat-card__label">{label}</p>
+        <p className="stat-card__value">{value}</p>
+        {note && <p className="small muted">{note}</p>}
       </div>
-    </form>
+    </li>
   );
 }
 
@@ -130,11 +180,8 @@ function buildQuery(filters: Filters, cursor: string | null): string {
   return params.toString();
 }
 
-export async function adminLogout(): Promise<void> {
-  await api("/admin/auth/logout", { method: "POST" });
-}
-
-function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSignedOut: () => void }) {
+function AdminOrders() {
+  const { signOut: onSignedOut } = useAdminSession();
   const [draft, setDraft] = useState<Filters>(EMPTY_FILTERS);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   // Keyset pages: the cursor of each page seen so far, so "previous" works too.
@@ -169,34 +216,10 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
   }
 
   return (
-    <div className="stack">
-      <div className="row spread">
-        <p className="muted">
-          {identity.email} (สิทธิ์ {identity.role})
-          {hasRole(identity, "superadmin") && (
-            <>
-              {" · "}
-              <Link href="/admin/products">จัดการสินค้า</Link>
-            </>
-          )}
-        </p>
-        <button
-          type="button"
-          className="btn btn-secondary btn-small"
-          onClick={async () => {
-            try {
-              await adminLogout();
-              onSignedOut();
-            } catch (err) {
-              setError(describeError(err));
-            }
-          }}
-        >
-          ออกจากระบบ
-        </button>
-      </div>
+    <section className="stack" aria-labelledby="orders-heading">
+      <h2 id="orders-heading">ออเดอร์</h2>
 
-      <form className="card" onSubmit={applyFilters} aria-label="ตัวกรองออเดอร์">
+      <form className="card stack" onSubmit={applyFilters} aria-label="ตัวกรองออเดอร์">
         <div className="grid">
           <div className="field">
             <label htmlFor="f-status">สถานะ</label>
@@ -273,10 +296,10 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
       )}
 
       {!page && loading && <p aria-busy="true">กำลังโหลดออเดอร์…</p>}
-      {page && page.items.length === 0 && <p className="card">ไม่พบออเดอร์ที่ตรงกับตัวกรอง</p>}
+      {page && page.items.length === 0 && <p className="card empty">ไม่พบออเดอร์ที่ตรงกับตัวกรอง</p>}
       {page && page.items.length > 0 && (
         <div className="table-wrap card" aria-busy={loading}>
-          <table>
+          <table className="admin-table">
             <caption className="sr-only">รายการออเดอร์ ใหม่สุดก่อน</caption>
             <thead>
               <tr>
@@ -292,7 +315,7 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
             <tbody>
               {page.items.map((o) => (
                 <tr key={o.order_id}>
-                  <td>
+                  <td className="nowrap">
                     <Link href={`/admin/orders/${encodeURIComponent(o.order_id)}`}>{o.order_id}</Link>
                   </td>
                   <td>
@@ -300,7 +323,7 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
                   </td>
                   <td>{o.email}</td>
                   <td>{o.game_uid}</td>
-                  <td>{formatBaht(o.total_satang)}</td>
+                  <td className="nowrap">{formatBaht(o.total_satang)}</td>
                   <td className="small">
                     {formatBaht(o.paid_satang)} / {formatBaht(o.refunded_satang)}
                   </td>
@@ -332,6 +355,6 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
           หน้าถัดไป
         </button>
       </div>
-    </div>
+    </section>
   );
 }
