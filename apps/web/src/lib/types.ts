@@ -8,6 +8,9 @@ export interface Product {
   stock: number | null;
   max_qty_per_order: number | null;
   max_qty_per_email: number | null;
+  /** Optional fields a newer API may add; the UI works without them. */
+  category?: string | null;
+  description?: string | null;
 }
 
 /** GET /admin/products (superadmin). */
@@ -88,6 +91,20 @@ export type AdminRole = "viewer" | "support" | "finance" | "superadmin";
 export interface AdminIdentity {
   email: string;
   role: AdminRole;
+  /** Newer API: admins may sign in with a username. */
+  username?: string | null;
+}
+
+/** GET /admin/stats. Money in satang. */
+export interface AdminStats {
+  orders_today: number;
+  revenue_today_satang: number;
+  orders_last_minute: number;
+  orders_last_hour: number;
+  by_status: Record<string, number>;
+  queue_depth: number;
+  dead_letters_open: number;
+  generated_at: string;
 }
 
 export interface AdminOrderDetail extends Order {

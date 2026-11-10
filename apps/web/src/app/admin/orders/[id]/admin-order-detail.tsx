@@ -1,39 +1,20 @@
 "use client";
 
 import { REFUNDABLE_STATUSES, type OrderStatus } from "@inblack/domain";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { OrderSummaryCard, Timeline } from "@/components/order-view";
 import { api, ApiError, describeError } from "@/lib/api";
 import { formatDateTime } from "@/lib/labels";
 import { formatBaht } from "@/lib/money";
 import type { AdminIdentity, AdminOrderDetail as Detail } from "@/lib/types";
-import { hasRole, useAdminIdentity } from "@/lib/use-admin";
+import { hasRole, useAdminSession } from "@/lib/use-admin";
 import { RefundDialog } from "./refund-dialog";
 
 const RETRYABLE: readonly string[] = ["FAILED", "NEEDS_REVIEW"];
 
+/** The admin shell only renders this when signed in, so the identity is always there. */
 export function AdminOrderDetail({ orderId }: { orderId: string }) {
-  const { identity, error: identityError } = useAdminIdentity();
-  if (identity === undefined) {
-    return identityError ? (
-      <p className="alert alert-error" role="alert">
-        {identityError}
-      </p>
-    ) : (
-      <p aria-busy="true">กำลังตรวจสอบการเข้าสู่ระบบ…</p>
-    );
-  }
-  if (identity === null) {
-    return (
-      <div className="card">
-        <p>กรุณาเข้าสู่ระบบผู้ดูแลก่อน</p>
-        <Link className="btn" href="/admin">
-          ไปหน้าเข้าสู่ระบบ
-        </Link>
-      </div>
-    );
-  }
+  const { identity } = useAdminSession();
   return <DetailBody orderId={orderId} identity={identity} />;
 }
 

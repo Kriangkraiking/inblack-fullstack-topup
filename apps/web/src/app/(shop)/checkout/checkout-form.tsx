@@ -10,7 +10,7 @@ import {
   type PriceBreakdown,
 } from "@inblack/domain";
 import { useMemo, useRef, useState, type FormEvent } from "react";
-import { useProducts } from "@/app/catalog";
+import { useProducts } from "@/lib/use-products";
 import { api, ApiError, describeError, isRetryable } from "@/lib/api";
 import { PAYMENT_LABELS } from "@/lib/labels";
 import { formatBaht } from "@/lib/money";
