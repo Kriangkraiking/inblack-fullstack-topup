@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default async function MyOrderDetailPage({ params }: PageProps<"/my-orders/[id]">) {
   const { id } = await params;
   return (
-    <div className="stack">
+    <div className="stack narrow">
       <p>
         <Link href="/my-orders">กลับไปออเดอร์ของฉัน</Link>
       </p>

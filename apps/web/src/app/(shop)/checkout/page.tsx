@@ -12,8 +12,8 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   const sku = typeof params.sku === "string" ? params.sku : null;
   const products = await fetchProductsOnServer();
   return (
-    <div className="stack">
-      <h1>สั่งซื้อ</h1>
+    <div className="stack narrow">
+      <h1 className="page-title">สั่งซื้อ</h1>
       <CheckoutForm initialProducts={products} preselectedSku={sku} />
     </div>
   );

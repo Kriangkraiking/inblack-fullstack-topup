@@ -315,7 +315,7 @@ function AdminOrders() {
             <tbody>
               {page.items.map((o) => (
                 <tr key={o.order_id}>
-                  <td>
+                  <td className="nowrap">
                     <Link href={`/admin/orders/${encodeURIComponent(o.order_id)}`}>{o.order_id}</Link>
                   </td>
                   <td>
@@ -323,7 +323,7 @@ function AdminOrders() {
                   </td>
                   <td>{o.email}</td>
                   <td>{o.game_uid}</td>
-                  <td>{formatBaht(o.total_satang)}</td>
+                  <td className="nowrap">{formatBaht(o.total_satang)}</td>
                   <td className="small">
                     {formatBaht(o.paid_satang)} / {formatBaht(o.refunded_satang)}
                   </td>

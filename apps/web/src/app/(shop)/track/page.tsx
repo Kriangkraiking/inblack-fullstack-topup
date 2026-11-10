@@ -11,8 +11,8 @@ export default async function TrackPage({ searchParams }: PageProps<"/track">) {
   const orderId = typeof params.order_id === "string" ? params.order_id : "";
   const paymentResult = typeof params.payment_result === "string" ? params.payment_result : null;
   return (
-    <div className="stack">
-      <h1>ติดตามออเดอร์</h1>
+    <div className="stack narrow">
+      <h1 className="page-title">ติดตามออเดอร์</h1>
       <TrackClient initialOrderId={orderId} paymentResult={paymentResult} />
     </div>
   );

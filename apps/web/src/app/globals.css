@@ -231,6 +231,17 @@ main:focus {
   }
 }
 
+/* Footer sits at the bottom even on short pages. */
+.shop {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shop > main {
+  flex: 1;
+}
+
 /* ---------- Customer header ---------- */
 .site-header {
   background: var(--brand);
@@ -718,6 +729,12 @@ main:focus {
 
 .spread {
   justify-content: space-between;
+}
+
+/* Form pages (checkout, track, my-orders) read better in a narrower column. */
+.narrow {
+  max-width: 760px;
+  margin-inline: auto;
 }
 
 .page-title {
@@ -1326,7 +1343,7 @@ dialog::backdrop {
 .stat-grid {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
 }
 
 .stat-card {
@@ -1359,9 +1376,18 @@ dialog::backdrop {
   font-weight: 600;
 }
 
+.stat-card > div {
+  min-width: 0;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
 .stat-card__value {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: clamp(1.1rem, 1.4vw, 1.5rem);
+  white-space: nowrap; /* never split an amount like 45,823.50 across lines */
   font-weight: 900;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
