@@ -111,10 +111,10 @@ runs them all locally (`INVARIANTS=s7,s8 make e2e` for a subset).
 
 | Check | Result | At |
 |---|---|---|
-| `scripts/audit/invariants.mjs` (all scenarios, fresh clone) | 76 passed, 0 failed | `75ea4df` (orchestrator, final run) |
-| `scripts/audit/security.mjs` | 44/44 | `4407e13` and `6a7d274` (orchestrator) |
-| `scripts/audit/sse.mjs` | 10/10 | `4407e13` and `6a7d274` (orchestrator) |
-| GitHub Actions, all 6 jobs | green | `fd91f78`, `7cb51ba`, `4407e13` |
+| `scripts/audit/invariants.mjs` (all scenarios, fresh clone) | 76 passed, 0 failed | `75ea4df`, and `d92e744` after the redesign (orchestrator) |
+| `scripts/audit/security.mjs` | 44/44 | `4407e13`, `6a7d274`, and the redesign API (orchestrator) |
+| `scripts/audit/sse.mjs` | 10/10 | `4407e13`, `6a7d274`, and the redesign API (orchestrator) |
+| GitHub Actions, all 6 jobs | green | `fd91f78`, `7cb51ba`, `4407e13`, `33d1db2`, `d92e744` |
 
 Run the full audit on a machine that will not sleep: it takes about 10 minutes, and a host that
 suspends mid-run freezes every container past the 15-minute order TTL (see AI_LOG).
