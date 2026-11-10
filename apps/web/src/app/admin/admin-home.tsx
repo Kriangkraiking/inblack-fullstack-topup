@@ -8,7 +8,7 @@ import { api, ApiError, describeError } from "@/lib/api";
 import { formatDateTime, statusLabel } from "@/lib/labels";
 import { formatBaht } from "@/lib/money";
 import type { AdminIdentity, OrderSummary, Page } from "@/lib/types";
-import { useAdminIdentity } from "@/lib/use-admin";
+import { hasRole, useAdminIdentity } from "@/lib/use-admin";
 
 export function AdminHome() {
   const { identity, setIdentity, error, reload } = useAdminIdentity();
@@ -173,6 +173,12 @@ function AdminOrders({ identity, onSignedOut }: { identity: AdminIdentity; onSig
       <div className="row spread">
         <p className="muted">
           {identity.email} (สิทธิ์ {identity.role})
+          {hasRole(identity, "superadmin") && (
+            <>
+              {" · "}
+              <Link href="/admin/products">จัดการสินค้า</Link>
+            </>
+          )}
         </p>
         <button
           type="button"

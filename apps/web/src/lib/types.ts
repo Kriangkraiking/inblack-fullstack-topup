@@ -10,6 +10,12 @@ export interface Product {
   max_qty_per_email: number | null;
 }
 
+/** GET /admin/products (superadmin). */
+export interface AdminProduct extends Product {
+  active: boolean;
+  updated_at: string;
+}
+
 export interface OrderItem {
   sku: string;
   name: string;

@@ -39,7 +39,7 @@ export function isRetryable(error: unknown): boolean {
 }
 
 interface ApiOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   body?: unknown;
   headers?: Record<string, string>;
   signal?: AbortSignal;
@@ -117,6 +117,12 @@ const MESSAGES: Record<string, string> = {
   REFUND_IN_PROGRESS: "มีการคืนเงินค้างอยู่",
   INVALID_TRANSITION: "เปลี่ยนสถานะนี้ไม่ได้",
   NETWORK_ERROR: "ติดต่อเซิร์ฟเวอร์ไม่ได้",
+  LOGIN_LOCKED: "ลองเข้าสู่ระบบผิดหลายครั้ง อีเมลนี้ถูกล็อกชั่วคราว",
+  UNSUPPORTED_MEDIA_TYPE: "รูปแบบคำขอไม่ถูกต้อง",
+  EMAIL_SEARCH_FORBIDDEN: "สิทธิ์ของบัญชีนี้ค้นหาได้ด้วยเลขออเดอร์เท่านั้น",
+  PRODUCT_NOT_FOUND: "ไม่พบสินค้านี้",
+  STOCK_CHANGED: "สต็อกเปลี่ยนไประหว่างแก้ไข (มีคนสั่งซื้อ) โหลดใหม่แล้วลองอีกครั้ง",
+  STOCK_MODE_LOCKED: "สลับระหว่างสต็อกจำกัดและไม่จำกัดไม่ได้",
 };
 
 /** A Thai sentence for the problem, with the API's own detail kept for support. */
