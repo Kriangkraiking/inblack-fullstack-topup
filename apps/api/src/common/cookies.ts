@@ -18,8 +18,10 @@ export function readTokenCookie(cookieHeader: string | undefined, name: string):
 }
 
 /**
- * The same flags for every session cookie, admin and customer. Secure is off by default because
- * compose serves plain http on localhost; COOKIE_SECURE=true turns it on behind TLS.
+ * The same flags for every session cookie, admin and customer. Secure follows COOKIE_SECURE,
+ * which compose and .env.example set to true: browsers keep Secure cookies on http://localhost,
+ * and behind TLS it must be on. Unset means off, so a bare `node dist/main` on another plain-http
+ * host still signs in (ADR 0005).
  */
 export function sessionCookieOptions() {
   return {

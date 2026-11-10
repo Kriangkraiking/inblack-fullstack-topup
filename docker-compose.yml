@@ -1,4 +1,5 @@
 # Runs without a .env file: every ${VAR:-default} below is a local test value only.
+# Published ports bind to 127.0.0.1, so nothing here is reachable from other machines.
 x-env-file: &env-file
   - path: .env
     required: false
@@ -51,8 +52,9 @@ x-api-env: &api-env
   ORDER_EVENTS_TOKEN_SECRET: ${ORDER_EVENTS_TOKEN_SECRET:-test_only_order_events_secret_change_me}
   ORDER_TTL_SECONDS: ${ORDER_TTL_SECONDS:-900}
   ADMIN_SESSION_TTL_SECONDS: ${ADMIN_SESSION_TTL_SECONDS:-28800}
-  # Off because compose serves plain http on localhost. Set to true behind TLS.
-  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  # On by default (decided by the user). Browsers treat http://localhost as a secure context and
+  # keep Secure cookies there; set false only for a plain-http host that is not localhost.
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
   CUSTOMER_SESSION_TTL_SECONDS: ${CUSTOMER_SESSION_TTL_SECONDS:-86400}
   # Origins allowed to send cookie requests that change data (CSRF) and to read answers (CORS).
   CSRF_ALLOWED_ORIGINS: ${CSRF_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:3000}
@@ -75,7 +77,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-inblack_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_local_password}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -113,8 +115,7 @@ services:
     image: redis:7-alpine
     container_name: inblack-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # Not published: only api and worker use it, inside the compose network.
     volumes:
       - redis_data:/data
     healthcheck:
@@ -149,7 +150,7 @@ services:
     container_name: inblack-proxy
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -237,7 +238,7 @@ services:
       WEBHOOK_URL: ${WEBHOOK_URL:-http://proxy/api/v1/webhooks/payment}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-whsec_test_inblackm_2026}
     ports:
-      - "4010:4010"
+      - "127.0.0.1:4010:4010"
     volumes:
       - mock_pay_data:/data
     healthcheck:
@@ -266,7 +267,7 @@ services:
       SUCCESS_BUT_TIMEOUT_RATE: ${SUCCESS_BUT_TIMEOUT_RATE:-0}
       LATENCY_MS: ${LATENCY_MS:-0}
     ports:
-      - "4020:4020"
+      - "127.0.0.1:4020:4020"
     volumes:
       - mock_game_data:/data
     healthcheck:
@@ -290,7 +291,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       NODE_ENV: production
       # Server-side reads (catalog HTML) go through nginx inside the compose network.
@@ -319,8 +320,8 @@ services:
     container_name: inblack-mailpit
     restart: unless-stopped
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]
       interval: 5s
