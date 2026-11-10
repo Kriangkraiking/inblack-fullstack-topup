@@ -4,6 +4,8 @@ import { AdminAuthController } from './admin/admin-auth.controller.js';
 import { AdminAuthGuard } from './admin/admin-auth.guard.js';
 import { AdminAuthRepository } from './admin/admin-auth.repository.js';
 import { AdminAuthService } from './admin/admin-auth.service.js';
+import { AdminStatsController } from './admin/admin-stats.controller.js';
+import { AdminStatsRepository } from './admin/admin-stats.repository.js';
 import { AuditLogsController } from './admin/audit-logs.controller.js';
 import { CustomerAuthController } from './customer-auth/customer-auth.controller.js';
 import { CustomerAuthRepository } from './customer-auth/customer-auth.repository.js';
@@ -56,6 +58,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AdminOrderQueryController,
     AdminOrdersController,
     AdminProductsController,
+    AdminStatsController,
     AppController,
     AuditLogsController,
     CatalogController,
@@ -73,6 +76,7 @@ import { WebhooksService } from './webhooks/webhooks.service.js';
     AdminAuthService,
     AdminProductsRepository,
     AdminProductsService,
+    AdminStatsRepository,
     // Guards run in this order: a forged cross-site request is refused before any session lookup.
     { provide: APP_GUARD, useClass: CsrfGuard },
     { provide: APP_GUARD, useClass: AdminAuthGuard },

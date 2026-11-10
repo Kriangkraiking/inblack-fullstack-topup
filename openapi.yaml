@@ -1041,6 +1041,49 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '5XX': { $ref: '#/components/responses/ServerProblem' }
 
+  /api/v1/admin/stats:
+    get:
+      summary: Dashboard numbers. viewer and up.
+      description: |
+        Whole-system numbers from Postgres (`admin_dashboard_stats()`, migration 0012), cached
+        5 seconds per replica, so two calls through the proxy may differ by up to that much.
+        Money is integer satang.
+
+        - "Today" is the calendar day in Asia/Bangkok, from 00:00 Bangkok time to now.
+        - `orders_today`, `orders_last_minute`, `orders_last_hour`: orders created in that period,
+          any status.
+        - `revenue_today_satang`: the sum of `paid_satang` of the orders whose first PAID event is
+          today, minus the refunds that settled (SUCCEEDED) today, whichever day their order was
+          paid. Can be negative on a day with more refunds than payments.
+        - `by_status`: number of orders in each status, every status present (0 when none).
+        - `queue_depth`: outbox jobs not yet processed. `dead_letters_open`: unresolved dead letters.
+      operationId: adminStats
+      security: [{ adminSession: [] }]
+      responses:
+        '200':
+          description: The numbers. `Cache-Control: private, no-store`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [orders_today, revenue_today_satang, orders_last_minute, orders_last_hour,
+                  by_status, queue_depth, dead_letters_open, generated_at]
+                properties:
+                  orders_today: { type: integer, minimum: 0 }
+                  revenue_today_satang: { type: integer, description: Satang; may be negative }
+                  orders_last_minute: { type: integer, minimum: 0 }
+                  orders_last_hour: { type: integer, minimum: 0 }
+                  by_status:
+                    type: object
+                    required: [PENDING_PAYMENT, PAID, IN_QUEUE, IN_PROGRESS, COMPLETED, FAILED,
+                      REFUNDED, EXPIRED, PAYMENT_FAILED, NEEDS_REVIEW]
+                    additionalProperties: { type: integer, minimum: 0 }
+                  queue_depth: { type: integer, minimum: 0 }
+                  dead_letters_open: { type: integer, minimum: 0 }
+                  generated_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
   /api/v1/_test/reset:
     post:
       summary: Wipe all data and seed again
