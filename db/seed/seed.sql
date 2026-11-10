@@ -9,6 +9,17 @@ INSERT INTO products (sku, slug, name, price_satang, stock, max_qty_per_order, m
   ('FLASH-SKIN-01', 'flash-skin-01', 'Limited Skin (Flash Sale)', 9900,   100,  NULL, 2)
 ON CONFLICT (sku) DO NOTHING;
 
+-- Card display fields (migration 0013). Fills only empty rows, never price, stock or SKU.
+UPDATE products SET
+  category = v.category, description = v.description, image_path = v.image_path
+FROM (VALUES
+  ('DIAMOND-1000',  'currency', '1,000 Diamonds delivered straight to your game account.', '/images/products/diamond-1000.png'),
+  ('DIAMOND-5000',  'currency', '5,000 Diamonds delivered straight to your game account.', '/images/products/diamond-5000.png'),
+  ('MONTHLY-PASS',  'pass',     '30 days of daily rewards. One per order.',                '/images/products/monthly-pass.png'),
+  ('FLASH-SKIN-01', 'skin',     'Limited flash sale skin. Up to 2 per email while stock lasts.', '/images/products/flash-skin-01.png')
+) AS v (sku, category, description, image_path)
+WHERE products.sku = v.sku AND products.category IS NULL;
+
 INSERT INTO vouchers (code, discount_type, percent_bps, fixed_satang, cap_satang, min_subtotal_satang, max_uses, max_uses_per_email) VALUES
   ('SAVE10', 'PERCENT', 1000, NULL, 5000, 20000, 10,   1),
   ('FLAT20', 'FIXED',   NULL, 2000, NULL, 10000, NULL, NULL)

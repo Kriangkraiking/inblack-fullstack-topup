@@ -28,6 +28,23 @@ servers:
     description: Nginx in front of api-1 and api-2 (docker compose)
 
 paths:
+  /:
+    get:
+      summary: Which replica answered. For checking the round-robin; touches no dependency.
+      operationId: getInstance
+      responses:
+        '200':
+          description: The replica's name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, service, instance]
+                properties:
+                  status: { type: string, const: ok }
+                  service: { type: string, const: api }
+                  instance: { type: string, examples: [api-1] }
+
   /healthz:
     get:
       summary: Liveness. Does not touch any dependency.
@@ -1226,6 +1243,20 @@ components:
           description: Units left. null means unlimited.
         max_qty_per_order: { type: [integer, 'null'], minimum: 1 }
         max_qty_per_email: { type: [integer, 'null'], minimum: 1 }
+        category:
+          type: [string, 'null']
+          pattern: '^[a-z][a-z-]{0,31}$'
+          description: Display grouping for product cards (seeded currency, pass, skin). Public catalog only.
+          examples: [skin]
+        description:
+          type: [string, 'null']
+          maxLength: 500
+          description: Short card text, plain text (render escaped). Public catalog only.
+        image_path:
+          type: [string, 'null']
+          pattern: '^/[A-Za-z0-9/._-]{1,200}$'
+          description: Path on the web app (apps/web/public), never an outside URL. The web app supplies the file. Public catalog only.
+          examples: [/images/products/flash-skin-01.png]
 
     AdminProduct:
       allOf:

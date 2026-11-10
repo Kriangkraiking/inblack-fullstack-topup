@@ -3,7 +3,7 @@ import { toSatang } from '@inblack/domain';
 import { ProblemError } from '../common/problem.js';
 import { CatalogRepository, type ProductRow } from './catalog.repository.js';
 
-function renderProduct(row: ProductRow) {
+export function renderProduct(row: ProductRow) {
   return {
     sku: row.sku,
     slug: row.slug,
@@ -13,6 +13,10 @@ function renderProduct(row: ProductRow) {
     stock: row.stock,
     max_qty_per_order: row.max_qty_per_order,
     max_qty_per_email: row.max_qty_per_email,
+    // Display only (migration 0013). Added after the fields above; may be null.
+    category: row.category,
+    description: row.description,
+    image_path: row.image_path,
   };
 }
 
