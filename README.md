@@ -98,10 +98,13 @@ runs them all locally (`INVARIANTS=s7,s8 make e2e` for a subset).
 
 | Check | Result | At |
 |---|---|---|
-| `scripts/audit/invariants.mjs` (all scenarios) | 76 passed, 0 failed | `5669625` (orchestrator), `4407e13` (agent report) |
-| `scripts/audit/security.mjs` | 44/44 | `4407e13` |
-| `scripts/audit/sse.mjs` | 10/10 | `4407e13` |
-| GitHub Actions, all 6 jobs | green | `fd91f78`, `7cb51ba` |
+| `scripts/audit/invariants.mjs` (all scenarios, fresh clone) | 76 passed, 0 failed | `75ea4df` (orchestrator, final run) |
+| `scripts/audit/security.mjs` | 44/44 | `4407e13` and `6a7d274` (orchestrator) |
+| `scripts/audit/sse.mjs` | 10/10 | `4407e13` and `6a7d274` (orchestrator) |
+| GitHub Actions, all 6 jobs | green | `fd91f78`, `7cb51ba`, `4407e13` |
+
+Run the full audit on a machine that will not sleep: it takes about 10 minutes, and a host that
+suspends mid-run freezes every container past the 15-minute order TTL (see AI_LOG).
 
 What the invariant audit shows: 600 concurrent orders for FLASH-SKIN-01 sell exactly 100; 100
 paid orders with the worker killed 3 times give no reference above 1 top-up; concurrent refunds
