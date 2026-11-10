@@ -969,14 +969,19 @@ async function s7() {
   log(`orders in flight at the worker kill: ${busyAtKill}`);
   await auditGame('s7');
   await auditDelivery('s7');
-  const victims = stillHeld.filter((r) => r.json.voucher_code).slice(0, 5).map((r) => r.json);
+  // Victims must be orders that really completed: a run that outlives the TTL (host sleep, slow restarts) turns a
+  // late payment into an automatic refund (ADR 0004), and a finance refund on that order is rightly refused.
+  const completedNow = new Set((await q("SELECT id FROM orders WHERE status = 'COMPLETED' AND voucher_code IS NOT NULL")).map((r) => r.id));
+  const heldVoucher = stillHeld.filter((r) => r.json.voucher_code);
+  const victims = heldVoucher.filter((r) => completedNow.has(r.json.order_id)).slice(0, 5).map((r) => r.json);
+  if (victims.length < heldVoucher.length) note(`s7: ${heldVoucher.length - victims.length} of ${heldVoucher.length} paid voucher orders did not complete (expired before payment?), statuses ${JSON.stringify(await statusTally())}`);
   const refundReplies = await Promise.all(victims.flatMap((o) => [refund(s1, o.order_id, o.total_satang), refund(s2, o.order_id, o.total_satang), refund(s1, o.order_id, 5000), refund(s2, o.order_id, 5000)]));
   await waitDrained(120_000);
   await sleep(3000);
   const acceptedBy = {};
   for (const r of refundReplies.filter((x) => x.status === 202)) acceptedBy[r.json.order_id] = (acceptedBy[r.json.order_id] ?? 0) + r.amount;
   const within = victims.every((o) => (acceptedBy[o.order_id] ?? 0) <= o.total_satang);
-  check('s7/refund-redis-down', 3, 'refund race by 2 finance sessions with Redis down', within && refundReplies.some((r) => r.status === 202), { replies: tally(refundReplies), total_each: victims[0]?.total_satang, accepted: Object.values(acceptedBy) });
+  check('s7/refund-redis-down', 3, 'refund race by 2 finance sessions with Redis down', victims.length > 0 && within && refundReplies.some((r) => r.status === 202), { victims: victims.length, replies: tally(refundReplies), total_each: victims[0]?.total_satang, accepted: Object.values(acceptedBy) });
   await auditMoney('s7/redis-down');
   const statesFinal = await flashState();
   check('s7/final-stock', 1, 'stock after payment and fulfillment', statesFinal.stock >= 0 && statesFinal.stock + statesFinal.active === 100, { ...statesFinal, statuses: await statusTally() });
