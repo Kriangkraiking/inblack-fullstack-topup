@@ -96,6 +96,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@inblack/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       next:
         specifier: 16.4.5
         version: 16.4.5(@babel/core@7.29.13)(@types/node@20.19.43)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

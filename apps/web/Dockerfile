@@ -8,7 +8,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm fetch
 COPY . .
 RUN pnpm install --offline --frozen-lockfile --filter "web..."
-RUN pnpm --filter web build
+# The browser's address of the API, inlined into the client bundle at build time.
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+# "web..." builds @inblack/domain (its dist) before the web app that imports it.
+RUN pnpm --filter "web..." build
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
