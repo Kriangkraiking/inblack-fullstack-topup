@@ -48,6 +48,15 @@ The late-payment path in ADR 0004 re-acquires stock and vouchers, so it must fol
 
 api and worker connect as `inblack_app`, which is not a superuser and owns nothing. Otherwise a bug or an injected statement could disable the triggers that these guarantees rely on. Only `migrate` uses the owner. Each new table needs its own GRANT, because the role gets no default privileges.
 
+### Admin stock edits
+
+`PATCH /api/v1/admin/products/{sku}` (superadmin) sets the units left. It takes only the product row (`SELECT ... FOR UPDATE`, step 4 above, with nothing before it), so it cannot deadlock with order creation, expiry or webhooks, and they wait on the same row. Order creation still takes stock with its own conditional update; nothing in that path changed.
+
+- The request must carry `expected_stock`, the value the admin saw. Under the lock it is compared with the current stock, and the `UPDATE` repeats the comparison in its `WHERE`. A sale in between gives 409 `STOCK_CHANGED` instead of silently undoing or doubling it.
+- Switching between limited and unlimited is refused (409 `STOCK_MODE_LOCKED`). `release_order_holds` returns stock only to limited products, so orders placed while a product was unlimited would add units that were never taken once it became limited, and the shop could sell more than the admin set. Supporting it needs a record of which orders actually took stock; not needed now.
+- `CHECK (stock >= 0)` still backs everything.
+- Prices: `order_items` keeps `unit_price_satang` and `name_snapshot` and is append-only, and `orders` keeps every total, so a price change reaches new orders only; webhooks compare against `orders.total_satang` and refunds against `paid_satang`.
+
 ## Consequences
 
 - Flash sale orders run one at a time through the product row. That is the point, and the lock is held for a few short statements.
