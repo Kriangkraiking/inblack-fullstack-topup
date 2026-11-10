@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { isValidOrderId, toSatang } from '@inblack/domain';
 import type { Admin } from '../admin/admin-roles.js';
 import { EventsTokenService } from '../realtime/events-token.service.js';
-import { maskPii } from '../security/pii-mask.js';
+import { ProblemError } from '../common/problem.js';
+import { maskPii, seesFullPii } from '../security/pii-mask.js';
 import { pageOf } from './order-cursor.js';
 import type { AdminListInput, MyListInput } from './order-query-input.js';
 import { OrderQueryRepository, type EventRow, type OrderListRow } from './order-query.repository.js';
@@ -95,6 +96,11 @@ export class OrderQueryService {
   }
 
   async listForAdmin(admin: Admin, input: AdminListInput) {
+    // A viewer sees emails masked, so finding orders by a full email would unmask who bought
+    // what. They can still search by order id.
+    if (input.filter.email !== null && !seesFullPii(admin.role)) {
+      throw new ProblemError(403, 'EMAIL_SEARCH_FORBIDDEN', 'this role can search by order id only');
+    }
     const rows = await this.queries.listForAdmin(input.filter, input.cursor, input.limit + 1);
     const { items, nextCursor } = pageOf(rows, input.limit);
     return {
