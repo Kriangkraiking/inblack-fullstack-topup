@@ -23,3 +23,15 @@ export function parseWith<Schema extends z.ZodType>(
     path ? `${path}: ${issue.message}` : issue.message,
   );
 }
+
+/**
+ * 415 unless the body is declared as JSON. A cross-site HTML form can only send urlencoded,
+ * multipart or text/plain without a CORS preflight, so sign-in routes that skip the Origin check
+ * use this to refuse a forged login (login CSRF).
+ */
+export function requireJson(contentType: string | undefined): void {
+  const mediaType = (contentType ?? '').split(';')[0].trim().toLowerCase();
+  if (mediaType !== 'application/json') {
+    throw new ProblemError(415, 'UNSUPPORTED_MEDIA_TYPE', 'send the body as application/json');
+  }
+}

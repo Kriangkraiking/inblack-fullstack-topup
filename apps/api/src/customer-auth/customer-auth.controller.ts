@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { readTokenCookie, sessionCookieOptions } from '../common/cookies.js';
 import { ProblemError } from '../common/problem.js';
-import { parseWith } from '../common/validate.js';
+import { parseWith, requireJson } from '../common/validate.js';
 import { clientIp } from '../security/client-ip.js';
 import { CUSTOMER_SESSION_COOKIE, SkipCsrf } from '../security/csrf.guard.js';
 import {
@@ -56,6 +56,7 @@ export class CustomerAuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     await this.limiter.consume(OTP_VERIFY_PER_IP, clientIp(req));
+    requireJson(req.headers['content-type']);
     const input = parseWith(verifySchema, body);
     const { email, token } = await this.auth.verify(input.email, input.code);
     response.cookie(CUSTOMER_SESSION_COOKIE, token, {

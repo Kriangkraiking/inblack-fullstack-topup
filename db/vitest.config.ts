@@ -8,4 +8,7 @@ export default defineConfig({
       '@inblack/domain': fileURLToPath(new URL('../packages/domain/src/index.ts', import.meta.url)),
     },
   },
+  // Integration files share one Postgres server, and migration 0004 alters the cluster-wide
+  // inblack_app role: two files migrating at once could collide on it.
+  test: { fileParallelism: false },
 });

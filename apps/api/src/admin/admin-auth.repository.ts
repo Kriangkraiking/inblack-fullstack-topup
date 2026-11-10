@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DbService, type Tx } from '../db/db.service.js';
 import type { Admin, AdminRole } from './admin-roles.js';
+import type { LoginAttempt } from './login-limit.js';
 
 /** All SQL for admin login, sessions and the audit log. */
 
@@ -27,6 +28,19 @@ export class AdminAuthRepository {
       [email],
     );
     return rows[0];
+  }
+
+  /** Counts one attempt for this email key, see db/migrations/0010 admin_login_attempt. */
+  async registerLoginAttempt(emailKey: string, windowSeconds: number): Promise<LoginAttempt> {
+    const { rows } = await this.db.query<{ attempts: number; retry_after_seconds: number }>(
+      'SELECT attempts, retry_after_seconds FROM admin_login_attempt($1, $2)',
+      [emailKey, windowSeconds],
+    );
+    return { attempts: rows[0].attempts, retryAfterSeconds: rows[0].retry_after_seconds };
+  }
+
+  async clearLoginAttempts(emailKey: string): Promise<void> {
+    await this.db.query('DELETE FROM admin_login_attempts WHERE email_hash = $1', [emailKey]);
   }
 
   /** The session row and the audit row commit together. */

@@ -27,6 +27,9 @@ export const OTP_REQUEST_PER_EMAIL: RateRule = { name: 'otp-req-email', limit: 5
 /** Guessing across many emails from one address. The per-email lock lives in Postgres. */
 export const OTP_VERIFY_PER_IP: RateRule = { name: 'otp-verify-ip', limit: 60, windowMs: 60_000 };
 
+/** Admin password guessing from one address. The per-email limit lives in Postgres (login-limit.ts). */
+export const ADMIN_LOGIN_PER_IP: RateRule = { name: 'admin-login-ip', limit: 10, windowMs: 60_000 };
+
 export function tooManyRequests(retryAfterSeconds: number): ProblemError {
   return new ProblemError(429, 'RATE_LIMITED', 'too many requests, try again later', {
     'Retry-After': String(retryAfterSeconds),

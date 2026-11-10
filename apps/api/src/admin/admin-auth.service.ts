@@ -1,8 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { ProblemError } from '../common/problem.js';
 import { AdminAuthRepository } from './admin-auth.repository.js';
 import type { Admin } from './admin-roles.js';
+import {
+  ADMIN_LOGIN_WINDOW_SECONDS,
+  decideLoginAttempt,
+  invalidCredentials,
+  loginEmailKey,
+  loginLocked,
+} from './login-limit.js';
 import { DUMMY_HASH, verifyPassword } from './password.js';
 
 const DEFAULT_TTL_SECONDS = 8 * 60 * 60;
@@ -25,13 +31,20 @@ export class AdminAuthService {
 
   constructor(private readonly repository: AdminAuthRepository) {}
 
-  /** The same answer and about the same time for an unknown email and a wrong password. */
+  /**
+   * The same answer and about the same time for an unknown email and a wrong password. The
+   * per-email attempt is counted in Postgres before the password is checked (ADR 0005).
+   */
   async login(email: string, password: string): Promise<{ admin: Admin; token: string }> {
+    const key = loginEmailKey(email);
+    const decision = decideLoginAttempt(
+      await this.repository.registerLoginAttempt(key, ADMIN_LOGIN_WINDOW_SECONDS),
+    );
+    if (decision.kind === 'locked') throw loginLocked(decision.retryAfterSeconds);
     const found = await this.repository.findActiveByEmail(email);
     const passwordOk = await verifyPassword(password, found?.password_hash ?? DUMMY_HASH);
-    if (!found || !passwordOk) {
-      throw new ProblemError(401, 'INVALID_CREDENTIALS', 'email or password is incorrect');
-    }
+    if (!found || !passwordOk) throw invalidCredentials();
+    await this.repository.clearLoginAttempts(key);
     const token = randomBytes(32).toString('base64url');
     await this.repository.createSession(found.id, hashToken(token), this.ttlSeconds);
     return { admin: { id: found.id, email: found.email, role: found.role }, token };
