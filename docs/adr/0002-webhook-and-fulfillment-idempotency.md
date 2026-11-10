@@ -6,6 +6,10 @@ Status: Draft.
 
 Spec 5.4 makes a double top-up an immediate failure, and every message can arrive twice, out of order or not at all. Any process can die between two lines. mock-game does not protect us: every POST it commits counts as another top-up, and `SUCCESS_BUT_TIMEOUT_RATE` makes it commit and then never answer.
 
+## Decision
+
+Deduplicate webhooks with the `webhook_events` primary key inside the transaction that changes the status; write follow-up work to an outbox row in that same transaction; top up only after a GET answered 404 for the reference `<order_id>:<sku>`; send refunds with an idempotent `refund_id` and settle them in one SQL function. The sections below give the details. Code: `apps/api/src/webhooks/`, `apps/worker/src/job-handlers.ts`, `apps/worker/src/outbox.repository.ts`, `db/migrations/0003`, `0006`, `0007`. Proof: `scripts/audit/invariants.mjs` scenarios s2a (worker killed 3 times while orders were IN_PROGRESS), s2b (duplicate, new and replayed webhooks, bad signatures), s3 (concurrent refunds, worker kills while refunding, refund webhook replays), and `db/src/refund-settlement.int.spec.ts`.
+
 ## Webhook
 
 `POST /api/v1/webhooks/payment`, in this order:
