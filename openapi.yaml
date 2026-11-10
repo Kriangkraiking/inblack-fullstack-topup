@@ -73,7 +73,8 @@ paths:
       summary: Prometheus metrics of the replica that answers
       description: |
         Served on each replica's port 3000 inside the compose network only. Through the proxy
-        (port 8080) it is a 404 `NOT_FOUND`. `http_request_duration_seconds` is per replica; the
+        (port 8080) it is a 404 `NOT_FOUND` in every spelling (`/METRICS`, `//metrics`, `/%6detrics`,
+        `/metrics/`), and the replica routes paths case-sensitively. `http_request_duration_seconds` is per replica; the
         `inblack_*` gauges are read from Postgres (cached 5 seconds) and are the same on every replica.
       operationId: getMetrics
       responses:
@@ -334,6 +335,8 @@ paths:
         Sets the `inblack_session` cookie. 5 wrong codes lock the email for 15 minutes; the 5th
         answers 429 `OTP_LOCKED`. The lock is kept in Postgres, so it holds with Redis down.
         Sending the right code again after it was used does not count as a wrong guess.
+        Only `application/json` bodies are accepted (415 otherwise), so a cross-site HTML form
+        cannot sign a browser in (login CSRF).
       operationId: verifyOtp
       requestBody:
         required: true
@@ -351,7 +354,7 @@ paths:
           headers:
             Set-Cookie:
               schema: { type: string }
-              description: '`inblack_session=...; HttpOnly; SameSite=Strict; Path=/`'
+              description: '`inblack_session=...; HttpOnly; SameSite=Strict; Path=/`, plus `Secure` when COOKIE_SECURE=true (the compose default)'
           content:
             application/json:
               schema:
@@ -364,6 +367,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '415': { $ref: '#/components/responses/ClientProblem' }
         '422': { $ref: '#/components/responses/ClientProblem' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '5XX': { $ref: '#/components/responses/ServerProblem' }
@@ -443,7 +447,8 @@ paths:
       description: |
         Keyset pagination on (created_at, id), newest first: pages never repeat or skip an order,
         even while new orders arrive. `q` is an exact order id or an exact email. viewer sees
-        email and Game UID masked, support and up in full.
+        email and Game UID masked, support and up in full; viewer may search by order id only
+        (an email in `q` answers 403 `EMAIL_SEARCH_FORBIDDEN`).
       operationId: adminListOrders
       security: [{ adminSession: [] }]
       parameters:
@@ -467,6 +472,7 @@ paths:
                     items: { $ref: '#/components/schemas/OrderSummary' }
                   next_cursor: { type: [string, 'null'] }
         '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
         '422':
           description: '`VALIDATION_ERROR`, `INVALID_ORDER_ID` or `INVALID_CURSOR`'
           content:
@@ -662,7 +668,15 @@ paths:
   /api/v1/admin/auth/login:
     post:
       summary: Log in as an admin
-      description: Sets an httpOnly, SameSite=Strict session cookie. The session is stored in Postgres.
+      description: |
+        Sets an httpOnly, SameSite=Strict session cookie (Secure when COOKIE_SECURE=true, the
+        compose default). The session is stored in Postgres.
+
+        Limits, checked before the password: 10 attempts a minute per client IP (Redis, shared by
+        both replicas, `RATE_LIMITED`) and 5 attempts per email in a fixed 15 minute window
+        (Postgres, holds with Redis down, `LOGIN_LOCKED`). Unknown emails are counted and locked
+        the same way, so neither 401 nor 429 reveals whether an admin exists. A successful login
+        clears the email's count. Only `application/json` bodies are accepted.
       operationId: adminLogin
       requestBody:
         required: true
@@ -689,7 +703,9 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '415': { $ref: '#/components/responses/ClientProblem' }
         '422': { $ref: '#/components/responses/ClientProblem' }
+        '429': { $ref: '#/components/responses/RateLimited' }
         '5XX': { $ref: '#/components/responses/ServerProblem' }
 
   /api/v1/admin/auth/logout:
@@ -820,6 +836,85 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '409':
           description: '`INVALID_TRANSITION`, `REFUND_IN_PROGRESS`, `ORDER_NOT_RETRYABLE`, `FULFILLMENT_ALREADY_QUEUED`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/products:
+    get:
+      summary: Every product, active or not. superadmin only.
+      operationId: adminListProducts
+      security: [{ adminSession: [] }]
+      responses:
+        '200':
+          description: All products, by SKU.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminProduct' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403': { $ref: '#/components/responses/ClientProblem' }
+        '5XX': { $ref: '#/components/responses/ServerProblem' }
+
+  /api/v1/admin/products/{sku}:
+    patch:
+      summary: Edit name, price or stock. superadmin only.
+      description: |
+        Send at least one field; unknown fields are refused. The row is taken with
+        `SELECT ... FOR UPDATE` (the product lock of ADR 0001) and the write, the audit row
+        (`product.update`) and the lock commit together. Needs the CSRF Origin check like every
+        cookie write.
+
+        - A new price applies to new orders only. Orders keep `unit_price_satang` and their
+          totals from creation, so payment webhooks and refunds use the old amounts.
+        - `stock` is the units left (orders take stock when created). It needs `expected_stock`,
+          the value the admin saw: if an order changed stock since, the answer is 409
+          `STOCK_CHANGED` and nothing is written. Switching between limited (a number) and
+          unlimited (null) is refused with 409 `STOCK_MODE_LOCKED`.
+        - `GET /api/v1/products` is cached for 15 seconds, so the catalogue can lag that long.
+      operationId: adminUpdateProduct
+      security: [{ adminSession: [] }]
+      parameters:
+        - { name: sku, in: path, required: true, schema: { type: string, pattern: '^[A-Z0-9-]{1,64}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120, description: 'Trimmed. Stored and shown as plain text.' }
+                price_satang: { type: integer, minimum: 1, maximum: 100000000 }
+                stock: { type: [integer, 'null'], minimum: 0, maximum: 1000000 }
+                expected_stock: { type: [integer, 'null'], minimum: 0, description: 'Required with stock.' }
+      responses:
+        '200':
+          description: The product after the change.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminProduct' }
+        '401': { $ref: '#/components/responses/ClientProblem' }
+        '403':
+          description: '`FORBIDDEN` for any role below superadmin, `CSRF_ORIGIN_MISMATCH`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: '`PRODUCT_NOT_FOUND`'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '409':
+          description: '`STOCK_CHANGED` or `STOCK_MODE_LOCKED`'
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -977,7 +1072,7 @@ components:
 
   responses:
     RateLimited:
-      description: '`RATE_LIMITED` or `OTP_LOCKED`. Wait the number of seconds in Retry-After.'
+      description: '`RATE_LIMITED`, `OTP_LOCKED` or `LOGIN_LOCKED`. Wait the number of seconds in Retry-After.'
       headers:
         Retry-After:
           schema: { type: integer, minimum: 1 }
@@ -1075,6 +1170,15 @@ components:
           description: Units left. null means unlimited.
         max_qty_per_order: { type: [integer, 'null'], minimum: 1 }
         max_qty_per_email: { type: [integer, 'null'], minimum: 1 }
+
+    AdminProduct:
+      allOf:
+        - { $ref: '#/components/schemas/Product' }
+        - type: object
+          required: [active, updated_at]
+          properties:
+            active: { type: boolean }
+            updated_at: { type: string, format: date-time }
 
     PaymentMethod:
       type: string
