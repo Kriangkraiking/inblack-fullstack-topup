@@ -22,7 +22,8 @@ const ROW: StatsRow = {
 describe('renderStats', () => {
   it('lists every status, 0 when absent, and ignores a status the domain does not know', () => {
     const stats = renderStats(ROW, [{ status: 'PAID', n: '4' }, { status: 'BOGUS', n: '9' }], new Date(0));
-    expect(Object.keys(stats.by_status).sort()).toEqual([...ORDER_STATUSES].sort());
+    expect(new Set(Object.keys(stats.by_status))).toEqual(new Set(ORDER_STATUSES));
+    expect(Object.keys(stats.by_status)).toHaveLength(ORDER_STATUSES.length);
     expect(stats.by_status.PAID).toBe(4);
     expect(stats.by_status.COMPLETED).toBe(0);
     expect(stats.generated_at).toBe('1970-01-01T00:00:00.000Z');
