@@ -1,5 +1,7 @@
 # InBlack Top-Up
 
+ภาษาไทย: [docs/README.th.md](docs/README.th.md)
+
 Game top-up shop: catalog, checkout with fees and vouchers, a mock payment provider, a worker that
 tops up through a mock game API, live order tracking, customer OTP sign-in and an admin back office
 with refunds and reconciliation. The goal of the design is "never lose money, never lose goods"
