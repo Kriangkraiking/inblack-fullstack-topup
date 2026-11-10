@@ -37,8 +37,12 @@ Redis, the worker and the API replicas are not published. Stop with `docker comp
 Seeded by `db/seed/seed.sql` (hashes only); source: [docs/SEED_CREDENTIALS.md](docs/SEED_CREDENTIALS.md).
 These are test values for local and review use, not real accounts.
 
+**Admin dashboard (http://localhost:3000/admin):** username `Admin`, password `Admin3324`
+(superadmin, case-insensitive username). The login field accepts a username or an email.
+
 | Role | Email | Password | Can do |
 |---|---|---|---|
+| superadmin | username `Admin` (`admin@inblackm.test`) | `Admin3324` | everything below; the main account for managing orders |
 | viewer | `viewer@inblackm.test` | `Viewer-Test-2026` | read orders (emails masked; search by order id only) |
 | support | `support@inblackm.test` | `Support-Test-2026` | + retry fulfillment |
 | finance | `finance@inblackm.test` | `Finance-Test-2026` | + refunds, reconciliation, audit log |
@@ -49,6 +53,15 @@ Roles are ordered: each one includes the ones above it (`RequireRole` in `apps/a
 **Customers** have no password. Enter any email at http://localhost:3000/my-orders, open
 http://localhost:8025 and copy the 6-digit code (valid 5 minutes, single use, 5 wrong codes lock
 the email for 15 minutes).
+
+## Design
+
+The shop follows the visual direction of inblackm.com (red and white, red header with a centred
+logo, search bar, bold hero, rounded category chips and product cards). No logo, image or other
+asset was copied from that site: the logo and graphics are drawn in SVG/CSS here. The admin area
+has its own layout in the style of a common admin dashboard template: red sidebar, top bar with
+the signed-in user and role, summary cards from `GET /api/v1/admin/stats` (refreshed every 10 s),
+status counts and the orders table. There is no Claude Design export (`design/` does not exist).
 
 ## Try it (flow ทดลอง)
 
